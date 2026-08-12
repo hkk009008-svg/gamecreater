@@ -1,0 +1,9 @@
+GAME.local.md
+scrub_terms.local.txt
+public-grant.txt
+# Generated discovery surface (sync_skills.py). Machine-local: it mirrors
+# the ACTIVE GAME's skills too, which carry that game's private nouns.
+.claude/skills/
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,0 +1,73 @@
+# Lessons inbox — harness-general
+
+Append-only during work; distilled into skills only at arc end
+(`distill-an-arc`). One entry per lesson: date, what happened, the rule it
+suggests, evidence ref, candidate skill target. Game-specific instances
+live in the game's own inbox; entries here are the generalized pattern.
+`[distilled → skill]` marks entries already encoded; they stay as
+provenance.
+
+---
+
+- 2026-08-12 — A verification gate ran the editor's play-in-editor path on
+  a hand-opened map and passed for days while the user's real sessions
+  failed. Real entry differs on four axes: map actually booted, fresh
+  class-spawn vs patched instance, spawn point, cold load vs in-session
+  state. Rule: gate on the consumer's actual entry path.
+  `[distilled → verify-on-the-real-entry]`
+
+- 2026-08-12 — Fixes applied to a placed actor instance were invisible to
+  every fresh spawn of its class; the player's entry spawns fresh. Rule:
+  fix class templates, verify on a fresh spawn after cold reload.
+  `[distilled → verify-on-the-real-entry]`
+
+- 2026-08-12 — In-session Blueprint compiles reported healthy while the
+  saved bytes failed compile on every cold load, cascading a vendor error
+  into the player pawn falling back to parent defaults. Rule: a compile
+  claim needs a fresh-process load; "compiles now" ≠ "loads clean".
+  `[distilled → verify-on-the-real-entry]`
+
+- 2026-08-12 — Engine config array lines written without the `+` prefix
+  silently replace each other; only the last survived, which unregistered
+  an enum and broke every Blueprint pinned to it. Rule: repeated config
+  keys need `+`; after any config edit, re-verify the consumers.
+  `[distilled → edit-vendor-data-headlessly]`
+
+- 2026-08-12 — Select-node pins on a config-registered enum bind by enum
+  VALUE, not display name: registering the right names at wrong slots left
+  errors; registering the exact slots cleared them regardless of names.
+  Rule: recover the original value layout from the asset's own name table
+  before guessing registrations. `[distilled → edit-vendor-data-headlessly]`
+
+- 2026-08-12 — A no-op round-trip gate (export → rebuild → compare before
+  any real write) caught three distinct corruption traps in one table
+  pipeline: unregistered tags nulling out, display-name enum imports
+  resetting values, and unanchored field regexes shadowing prefixed
+  fields. Rule: never write a rebuilt asset until the identity rebuild is
+  byte-equivalent. `[distilled → edit-vendor-data-headlessly]`
+
+- 2026-08-12 — Two cycles were lost guessing scripting-API property names;
+  one cycle of harvesting candidate strings from the asset binary and
+  battery-testing them against live objects found the real names (some
+  with trailing spaces). Rule: harvest and test, never guess names.
+  `[distilled → edit-vendor-data-headlessly]`
+
+- 2026-08-12 — Twice, the decisive evidence for a works-here-fails-there
+  bug was a screenshot of the user's live session (an error banner and a
+  fallback pawn visible only there). Remote clicks failed (DPI mismatch)
+  but screenshots worked. Rule: look at the user's actual screen before
+  theorizing about their environment. `[distilled → watch-the-live-session]`
+
+- 2026-08-12 — Overlap-triggered pickups no-op when the player spawns
+  already inside them: the overlap fires before inventory init. Rule:
+  place spawn-adjacent interactables a couple of steps away; test the
+  walk-on, not the spawn-on.
+
+- 2026-08-12 — Creating an asset at a path where one was deleted earlier
+  in the same editor session fails; reusing the existing asset works.
+  Rule: prefer reuse-or-edit over delete-recreate within a session.
+
+- 2026-08-12 — A week of hard-won pipeline lessons lived in a notes file
+  inside a gitignored experiments directory — unversioned, one disk
+  failure from gone. Rule: lessons land in a versioned inbox the moment
+  they are paid for. `[distilled → this repo's memory doctrine]`
