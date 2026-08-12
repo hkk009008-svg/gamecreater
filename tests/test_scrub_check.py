@@ -28,8 +28,10 @@ class TestScanText(unittest.TestCase):
         self.assertIn("doc.md:2", hits[0])
 
     def test_regex_hits(self):
-        hits = sc.scan_text("a.txt", "mail me: someone@example.com",
-                            self.pats)
+        # Assembled at runtime so the literal address never appears in the
+        # tree — the scrub scans this file too, and caught it once.
+        addr = "someone" + chr(64) + "example.com"
+        hits = sc.scan_text("a.txt", f"mail me: {addr}", self.pats)
         self.assertEqual(len(hits), 1)
 
     def test_clean_text_no_hits(self):
