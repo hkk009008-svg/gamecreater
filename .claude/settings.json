@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"%CLAUDE_PROJECT_DIR%\\scripts\\hook_pretooluse.py\""
+            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/scripts/hook_pretooluse.py\""
           }
         ]
       }

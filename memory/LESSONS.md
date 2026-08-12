@@ -71,3 +71,15 @@ provenance.
   inside a gitignored experiments directory — unversioned, one disk
   failure from gone. Rule: lessons land in a versioned inbox the moment
   they are paid for. `[distilled → this repo's memory doctrine]`
+
+- 2026-08-13 — Both "proven live" guards were dead on the next session: the
+  hook command used cmd-style `%CLAUDE_PROJECT_DIR%`, and this session's
+  harness runs hooks under a POSIX shell where that is a literal — every
+  shell call failed closed on a missing-file error. The earlier proof had
+  exercised the scripts' exit codes, not the settings→shell→script wiring.
+  Rule: prove a control through the exact wiring the real threat uses, and
+  re-prove it when the executor changes; write hook commands in
+  executor-agnostic form (`${CLAUDE_PROJECT_DIR:-.}` with forward slashes —
+  hook cwd is the project dir as fallback). Evidence: this session's
+  PreToolUse errors, then a fake `git push` blocked through the new wiring.
+  Candidate skill target: prove-a-control.
