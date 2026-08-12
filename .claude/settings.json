@@ -1,0 +1,16 @@
+{
+  "$comment": "Two mechanized rules, both paid for: pushes are preflighted for PRIVATE visibility (preflight_push.py), and engine launches are blocked while an editor is open (check_editor_clear.py). Everything else stays advisory in skills/memory - only rules with a named observed failure get mechanized.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"%CLAUDE_PROJECT_DIR%\\scripts\\hook_pretooluse.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
