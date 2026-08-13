@@ -127,6 +127,17 @@ class TestMainVerdicts(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("SCRUB_REQUIRE_LOCAL_TERMS", out)
 
+    def test_strict_env_zero_means_off(self):
+        # "0" is the documented off-value; a polarity slip here bricks
+        # the gate to exit 2 on a clean tree (mutation-audit hole M4).
+        absent = self.dir / "scrub_terms.local.txt"
+        sc.TERM_FILES = (self._terms(), absent)
+        sc.ROOT = self._git_repo(("doc.txt", b"clean\n"))
+        os.environ["SCRUB_REQUIRE_LOCAL_TERMS"] = "0"
+        rc, out = self._run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn("WARNING", out)
+
     def test_strict_env_passes_when_local_terms_present(self):
         local = self._terms("localnoun\n", name="scrub_terms.local.txt")
         sc.TERM_FILES = (self._terms(), local)
@@ -237,6 +248,35 @@ class TestRealEntry(unittest.TestCase):
         proc = self._run()
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("SCRUB FAILED", proc.stdout)
+
+    def test_strict_env_zero_means_off_at_real_entry(self):
+        proc = self._run(SCRUB_REQUIRE_LOCAL_TERMS="0")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("WARNING", proc.stdout)
+
+    def test_verdict_text_is_ascii_with_no_escape_artifacts(self):
+        # backslashreplace is a last-resort backstop, not a license: a
+        # non-ASCII char regrowing in a message degrades to literal
+        # \uXXXX sequences on this console instead of crashing. Pin the
+        # messages themselves ASCII (mutation-audit hole M8).
+        proc = self._run()
+        self.assertTrue(proc.stdout.isascii(), proc.stdout)
+        self.assertNotIn("\\u", proc.stdout)
+
+    def test_non_ascii_matched_text_still_reports_the_hit(self):
+        # The reconfigure guard is what keeps non-cp949 MATCHED CONTENT
+        # from crashing the report mid-verdict and losing the hit detail
+        # (mutation-audit hole M9).
+        (self.root / "scripts" / "scrub_terms.txt").write_text(
+            "re:secretword.\n", encoding="utf-8")
+        (self.root / "dirty.txt").write_bytes(
+            "has secretword—here\n".encode("utf-8"))
+        subprocess.run(["git", "add", "dirty.txt"], cwd=self.root,
+                       check=True, capture_output=True)
+        proc = self._run()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("dirty.txt:1", proc.stdout)
+        self.assertNotIn("Traceback", proc.stderr)
 
 
 if __name__ == "__main__":
