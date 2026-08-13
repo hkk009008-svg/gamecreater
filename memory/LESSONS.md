@@ -82,7 +82,7 @@ provenance.
   executor-agnostic form (`${CLAUDE_PROJECT_DIR:-.}` with forward slashes —
   hook cwd is the project dir as fallback). Evidence: this session's
   PreToolUse errors, then a fake `git push` blocked through the new wiring.
-  Candidate skill target: prove-a-control.
+  Candidate skill target: prove-a-control. `[distilled → prove-a-control]`
 
 - 2026-08-13 — A publish gate scrubbed every blob in every rev and passed
   while the user's personal email rode along in the author/committer field
@@ -93,7 +93,7 @@ provenance.
   noreply identity before the flip (trees proven byte-identical). Rule:
   "scrub is clean" covers a tree; publishing exposes a surface — audit the
   surface. Candidate skill target: probe-a-claim, or a new
-  publish-a-repo skill.
+  publish-a-repo skill. `[distilled → publish-a-repo]`
 
 - 2026-08-13 — The scrub gate goes green vacuously: with `git ls-files`
   failing (e.g. run outside a repo) it prints "scrub clean: 0 tracked text
@@ -104,7 +104,7 @@ provenance.
   either collapses. Evidence: auditor ran scripts/scrub_check.py in a
   non-git dir → "scrub clean: 0 tracked text files, 7 patterns", exit 0.
   Candidate skill target: prove-an-instrument-can-fail; concrete fix
-  spawned as a follow-up task.
+  spawned as a follow-up task. `[distilled → prove-an-instrument-can-fail]`
 
 - 2026-08-13 — The scrub-hardening branch arrived 47-green with a claimed
   real-entry check, yet `python scripts/scrub_check.py` crashed on this
@@ -117,7 +117,7 @@ provenance.
   exit-2 on enumeration launch failure. Rule: a gate's consumer entry
   includes the console codepage it prints under; in-process green proves
   logic, not the instrument. Candidate skill target:
-  verify-on-the-real-entry (generalize beyond gameplay to instruments).
+  verify-on-the-real-entry (generalize beyond gameplay to instruments). `[distilled → verify-on-the-real-entry]`
 
 - 2026-08-13 — Adversarial acceptance on the hardened scrub measured the
   residual evasion surface on the real entry: (a) a tracked UTF-16 or
@@ -132,7 +132,7 @@ provenance.
   SCRUB_REQUIRE_LOCAL_TERMS=1 to mean what "clean" implies. Rule: a skip
   tally in the output is not a skip tally at the consumer — decide per
   gate whether skipped>0 may still exit 0. Deferred as a spawned task;
-  candidate skill target: prove-an-instrument-can-fail.
+  candidate skill target: prove-an-instrument-can-fail. `[distilled → prove-an-instrument-can-fail]`
 
 - 2026-08-13 — The push-guard false-blocked an authorized push: the Bash
   tool wrote `git -C /d/Unreal push`, the hook handed the POSIX drive
@@ -144,7 +144,7 @@ provenance.
   dialects; normalize at the boundary (/d/... → D:/...), and prove the
   ALLOW path live in every dialect the tools emit, not only the block
   path. Fixed with red-first pins in test_hook_pretooluse.py.
-  Candidate skill target: prove-a-control (allow-path proofs per dialect).
+  Candidate skill target: prove-a-control (allow-path proofs per dialect). `[distilled → prove-a-control]`
 
 - 2026-08-13 — A mutation audit of a fresh 51-test suite found the two
   halves of a paired defense (ASCII messages + encoding backstop) were
@@ -154,7 +154,7 @@ provenance.
   Rule: when a defense is a pair, pin each half separately; when a flag
   documents an off-value, test the off-value. All three killer tests were
   run red against their exact mutants before landing. Candidate skill
-  target: prove-a-control (mutation as the red-run for regression pins).
+  target: prove-a-control (mutation as the red-run for regression pins). `[distilled → prove-a-control]`
 
 - 2026-08-13 — The push guard blocked a push the user had already granted:
   gitignored config (public-grant.txt, scrub_terms.local.txt) does not
@@ -168,4 +168,24 @@ provenance.
   gitignored tiers in (or point at the primary checkout's) before trusting
   any gate. Evidence: preflight exit 1 from the worktree with the grant
   line present in the primary root; exit 0 after copying the file in.
-  Candidate skill target: verify-on-the-real-entry or prove-a-control.
+  Candidate skill target: verify-on-the-real-entry or prove-a-control. `[distilled → prove-a-control]`
+
+---
+
+DISTILL MARKER 2026-08-13 — everything above is swept: five skill
+edits (prove-a-control, verify-on-the-real-entry,
+prove-an-instrument-can-fail + game mirror, edit-vendor-data-headlessly,
+isolate-a-variable) and one new skill (publish-a-repo), each changelogged.
+The next sweep starts below this line.
+
+- 2026-08-13 -- The distill's verify step caught a project noun already
+  PUBLIC: a regression test carrying a literal working-root path was
+  committed and pushed AFTER the checkpoint's strict scrub ran, so the
+  changed tree was never re-gated -- the gate was sound, the ordering was
+  not. Tip fixed to neutral paths the same session; the noun stays
+  reachable in one historical public blob (weak signal: drive letter +
+  engine-named dir, no game name; rewrite judged not worth it). Rule: a
+  gate's verdict binds the tree it ran on -- any commit after the gate
+  re-runs the gate before the push. Candidate mechanization: preflight
+  runs the strict scrub when the push target is public/granted; awaiting
+  the user's word.

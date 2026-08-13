@@ -18,9 +18,9 @@ user falsified on sight, because gate and player entered through different
 doors. The user's standing correction, verbatim: *"remember that is not
 the same starting point as real game play."*
 
-## The four axes on which a test entry silently diverges
+## The five axes on which a test entry silently diverges
 
-Enumerate all four every time; each one independently produced a false
+Enumerate all five every time; each one independently produced a false
 PASS:
 
 1. **Map.** A gate that opens the map explicitly proves nothing about what
@@ -47,6 +47,16 @@ PASS:
    inside it, because the overlap fired before inventory init — the walk-on
    worked, the spawn-on never could.
 
+5. **Disabled layers.** The consumer's entry includes every layer the gate
+   turned off to run. Measured twice on 2026-08-13: a `-game -nullrhi`
+   boot gate passed for days while five identical GPU faults lived in the
+   ray-tracing path it never started; and a 47-green suite drove `main()`
+   in-process against a StringIO — which never encodes — and the real
+   console's cp949 codepage crashed the actual entry. Name what the gate
+   disabled in every claim, and give any layer the failure could live in
+   its own gate: a rendered soak with the RHI positively asserted, a
+   subprocess entry test under the machine codepage.
+
 ## The gate ladder — each rung is a strictly realer entry
 
 1. **In-session check** — cheapest, weakest; refactor feedback only.
@@ -56,9 +66,11 @@ PASS:
    spawn path. Catches axis 2.
 4. **Real boot** — launch the product the way the player does (for a game:
    `-game` mode, no editor, no hand-loaded map; headless with null
-   rendering if only log evidence is needed). The log must show the right
-   map loading by itself, the right game mode class, the world up for
-   play, and zero load-time errors. Catches axes 1 and 3 at once.
+   rendering if only log evidence is needed — and say so: null rendering
+   proves the CPU/content layer only, axis 5 stays open). The log must
+   show the right map loading by itself, the right game mode class, the
+   world up for play, and zero load-time errors. Catches axes 1 and 3 at
+   once.
 5. **The user plays it.** The only rung that closes a user-reported
    defect. Close on a re-report, never on a fix.
 
@@ -92,3 +104,7 @@ on one feature, each caught by the user, not the gate.
 ## Changelog
 
 - 2026-08-12 — Authored from the combat-wiring arc's inbox entries.
+- 2026-08-13 — Fifth axis (disabled layers) and the rung-4 null-rendering
+  caveat. Forced by: five ray-tracing faults behind a green -nullrhi
+  gate, and the scrub suite's cp949 real-entry crash (inbox entries of
+  2026-08-13, both repos).

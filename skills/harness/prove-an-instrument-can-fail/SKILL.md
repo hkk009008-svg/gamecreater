@@ -79,6 +79,21 @@ population before measuring anything. A null over 2.2% of a population,
 with the acquittals thrown away, is not a null. Emit every comparison with
 its margin, and the examined count beside the population count.
 
+## A green verdict carries its denominators, and refuses when one collapses
+
+A publishability gate printed "scrub clean: 0 tracked text files" with
+exit 0 when its file enumerator failed outside a repo, and silently ran 7
+of 24 patterns whenever a gitignored term tier was absent — every fresh
+clone got the degraded instrument with the same green (2026-08-13). And a
+tally inside the output is not a tally at the consumer: skipped files
+were honestly counted in the summary line while an exit-code-only caller
+published anyway — a planted key in a UTF-16 file rode through at rc 0
+beside its ASCII twin caught at rc 1 in the same run. Denominators
+(files scanned, patterns loaded, files skipped) belong in the verdict
+line; any of them collapsing is a refusal with its own exit code, never a
+clean; and a gate that can hang on pathological input returns no verdict
+at all — bound its work per item.
+
 ## A sweep over an inert variable returns clean, identical, meaningless rows
 
 N conditions come back clean and identical and the natural reading is "must
@@ -154,3 +169,7 @@ Generalized 2026-08-12.
 ## Changelog
 
 - 2026-08-12 — Initial generalized port.
+- 2026-08-13 — Denominators section. Forced by: the scrub gate's
+  vacuous-clean over zero files, the silent 24→7 pattern degradation,
+  and the skipped-UTF-16-secret evasion (inbox entries of 2026-08-13;
+  fixes red-proven in tests/test_scrub_check.py).

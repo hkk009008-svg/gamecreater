@@ -91,7 +91,13 @@ witness, would have "confirmed" any story asked of it.
    all green — a confident false negative. If single factors come back clean,
    suspect a pair before you suspect the list.
 2. **Flakiness.** One observation per cell is a sample, not a measurement.
-   Repeat per cell or state plainly that the cells are single-shot.
+   Repeat per cell or state plainly that the cells are single-shot. When
+   the failure is intermittent, the known-positive cannot be summoned per
+   run and a survival bounds nothing — an 8-minute soak survived under
+   the exact config that had crashed the same morning (2026-08-13).
+   Either repeat to a stated rate bound, or ship the evidence-ranked
+   cheapest mitigation with a documented escalation ladder and let real
+   usage discriminate.
 3. **Perturbation.** Adding reads can be what makes Y stop failing. Prefer
    non-perturbing witnesses; if you cannot get one, say the observation is
    load-bearing on the instrument.
@@ -140,3 +146,6 @@ governance corpus 2026-08-12.
 
 - 2026-08-12 — Initial port into the transferable corpus; provider- and
   project-specific machinery removed, all rules and measured instances kept.
+- 2026-08-13 — Intermittency rule in the flakiness bullet. Forced by: the
+  GPU-fault triage where soak survival could not convict or acquit a cvar
+  (game inbox entry of 2026-08-13).

@@ -58,6 +58,20 @@ manager into the player pawn spawning as its parent's naked default — a
 symptom three subsystems away from the config file. After any config edit,
 re-verify the *consumers* of that config, not the file.
 
+## A pack's Config travels with its Content
+
+A marketplace pack migrated content-only strands every gameplay tag it
+references: 161+ unregistered tags fired a once-per-session ensure and
+silently no-oped every MatchesTag — attribute rows blank, item actions
+dead — for a week before diagnosis (2026-08-13). Log harvesting cannot
+converge: runtime-only references never appear in load warnings, and the
+next one surfaces only after the previous batch registers. The byte sweep
+converges in one pass — extract family-prefixed strings from all pack
+asset bytes, with known-present tags as sweep controls — but filter
+Blueprint-graph artifacts (`K2Node_*`, `_C'` class refs, prose after
+"Family. ") or junk enters the registry. Register into YOUR config file:
+it survives a pack reinstall, unlike the vendor bytes.
+
 ## Enum-keyed pins bind by VALUE, not display name
 
 Select/switch nodes over config-registered enums store the enum **value**
@@ -123,3 +137,6 @@ errors headlessly; two cycles lost to guessed names.
 ## Changelog
 
 - 2026-08-12 — Authored from the combat-wiring arc's inbox entries.
+- 2026-08-13 — Config-travels-with-Content section. Forced by: the Hyper
+  pack's stranded tag registry (161 log-harvested + runtime-only refs
+  found by asset-byte sweep; game inbox entry of 2026-08-13).
