@@ -118,3 +118,28 @@ provenance.
   includes the console codepage it prints under; in-process green proves
   logic, not the instrument. Candidate skill target:
   verify-on-the-real-entry (generalize beyond gameplay to instruments).
+
+- 2026-08-13 — Adversarial acceptance on the hardened scrub measured the
+  residual evasion surface on the real entry: (a) a tracked UTF-16 or
+  early-NUL file carrying a real secret still exits 0 — the binary-skip
+  heuristic drops it before scanning; it is counted as skipped, but an
+  exit-code-only consumer would publish (planted AKIA key: rc 0; its
+  ASCII twin: rc 1, same run). (b) The committed email regex backtracks
+  quadratically on long @-less lines (80 KB → 35 s): one base64/minified
+  tracked file degrades the gate to no-verdict. (c) With the local tier
+  absent the gate scans 7 generic patterns and exits 0 — project-noun
+  enforcement is opt-in; a publish flow must set
+  SCRUB_REQUIRE_LOCAL_TERMS=1 to mean what "clean" implies. Rule: a skip
+  tally in the output is not a skip tally at the consumer — decide per
+  gate whether skipped>0 may still exit 0. Deferred as a spawned task;
+  candidate skill target: prove-an-instrument-can-fail.
+
+- 2026-08-13 — A mutation audit of a fresh 51-test suite found the two
+  halves of a paired defense (ASCII messages + encoding backstop) were
+  pinned only as a conjunction: either half reverted alone, suite green;
+  both reverted, caught. Same round: the documented "0" off-value of an
+  env flag had no test, so a polarity flip bricking the gate survived.
+  Rule: when a defense is a pair, pin each half separately; when a flag
+  documents an off-value, test the off-value. All three killer tests were
+  run red against their exact mutants before landing. Candidate skill
+  target: prove-a-control (mutation as the red-run for regression pins).
