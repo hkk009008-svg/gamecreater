@@ -214,6 +214,19 @@ The next sweep starts below this line.
   fallback that names the path, session-start sync, canonical game
   skills). Limit left open: PreToolUse only sees Claude Code
   Bash|PowerShell -- a Cursor Shell tool or a raw git push does not hit
-  it. Candidate: a versioned git pre-push hook; awaiting the user's word
-  (same bar as scrub-on-granted-push). `[distilled → code; skill body
-  edits wait for distill]`
+- 2026-08-14 -- Dual-environment harness integration and guard resilience pass:
+  (1) Added `AGENTS.md`, `.agents/hooks.json`, and `hook_antigravity_pretooluse.py`
+  so Google Antigravity IDE / 2.0 shares identical routing and fail-closed safety
+  guards with Claude Code. (2) Updated `sync_skills.py` to dual-mirror to both
+  `.claude/skills/` and `.agents/skills/` with worktree `resolve_gitignored` support.
+  (3) Fixed `GIT_C_RE` in `hook_pretooluse.py` to handle quoted paths containing
+  spaces (`git -C "D:/path with spaces" push`). (4) Added offline fallback in
+  `preflight_push.py` parsing `remote.origin.url` so `public-grant.txt` manual
+  overrides work without network `gh` dependency. (5) Expanded secret patterns in
+  `scrub_terms.txt` for Google AI, AWS STS, and GitHub app tokens. (6) Created
+  `scripts/doctor.py` for <80ms session health diagnostics. (7) Authored 6 new
+  game production skills: `inspect-and-patch-blueprint-graph`, `orchestrate-user-playtest`,
+  `audit-animation-montage-pipeline`, `bridge-dcc-asset-roundtrip`,
+  `pin-collision-and-trace-matrix`, `triage-engine-crash-dump`.
+  All 110 tests green, strict scrub clean. `[distilled → skills and code]`
+

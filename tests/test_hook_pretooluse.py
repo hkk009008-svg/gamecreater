@@ -34,6 +34,9 @@ class TestPushDetection(unittest.TestCase):
         self.assertTrue(hook.PUSH_RE.search("git.exe push origin main"))
         self.assertTrue(hook.PUSH_RE.search("git --no-pager push"))
         self.assertTrue(hook.PUSH_RE.search('git -C "/path with spaces" push'))
+        self.assertTrue(hook.PUSH_RE.search('git -c user.name="John Doe" push'))
+        self.assertTrue(hook.PUSH_RE.search('git -c "http.extraheader=val" push'))
+        self.assertTrue(hook.PUSH_RE.search('git --git-dir="D:/Repo/.git" push'))
 
     def test_non_push_git_does_not(self):
         self.assertFalse(hook.PUSH_RE.search("git status"))
@@ -47,7 +50,7 @@ class TestPushDetection(unittest.TestCase):
 class TestPushTargetDir(unittest.TestCase):
     def test_git_c_wins(self):
         self.assertEqual(hook.push_target_dir("git -C D:/repo push"),
-                         "D:/repo")
+                          "D:/repo")
 
     def test_last_cd_wins(self):
         cmd = "cd /d/a && ls && cd /d/b && git push"
@@ -65,6 +68,18 @@ class TestPushTargetDir(unittest.TestCase):
         self.assertEqual(
             hook.push_target_dir("git -C /tmp/repo push"), "/tmp/repo")
 
+    def test_git_c_with_spaces_and_quotes(self):
+        self.assertEqual(
+            hook.push_target_dir('git -C "D:/My Projects/repo" push'),
+            "D:/My Projects/repo")
+        self.assertEqual(
+            hook.push_target_dir("git -C 'D:/My Projects/repo' push"),
+            "D:/My Projects/repo")
+
+    def test_multiline_cd_detected(self):
+        cmd = "cd /d/somerepo\ngit push origin main"
+        self.assertEqual(hook.push_target_dir(cmd), "D:/somerepo")
+
     def test_default_is_cwd(self):
         self.assertEqual(hook.push_target_dir("git push"), ".")
 
@@ -74,9 +89,19 @@ class TestEditorDetection(unittest.TestCase):
         self.assertTrue(hook.EDITOR_RE.search(
             "D:/Engine/Binaries/Win64/UnrealEditor-Cmd.exe proj.uproject"))
         self.assertTrue(hook.EDITOR_RE.search("Start UnrealEditor.exe"))
+        self.assertTrue(hook.EDITOR_RE.search("Start-Process UnrealEditor.exe"))
+        self.assertTrue(hook.EDITOR_RE.search(
+            "& 'C:/EpicGames/Unreal/Engine/Binaries/Win64/UnrealEditor-Cmd.exe' proj.uproject"))
+        self.assertTrue(hook.EDITOR_RE.search(
+            "cd /d/x && UnrealEditor.exe"))
 
     def test_ignores_unrelated(self):
         self.assertFalse(hook.EDITOR_RE.search("python capture.py"))
+        self.assertFalse(hook.EDITOR_RE.search("cat Saved/Logs/UnrealEditor.log"))
+        self.assertFalse(hook.EDITOR_RE.search("Get-Content UnrealEditor.log"))
+        self.assertFalse(hook.EDITOR_RE.search("type UnrealEditor.log"))
+        self.assertFalse(hook.EDITOR_RE.search("git log --grep=UnrealEditor"))
+        self.assertFalse(hook.EDITOR_RE.search("python test_UnrealEditor.py"))
 
 
 class TestDispatch(unittest.TestCase):
@@ -160,6 +185,20 @@ class TestDispatch(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+def find_sh() -> str | None:
+    found = shutil.which("sh")
+    if found:
+        return found
+    if sys.platform == "win32":
+        for cand in [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "sh.exe",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "usr" / "bin" / "sh.exe",
+        ]:
+            if cand.is_file():
+                return str(cand)
+    return None
+
+
 class TestHookWiring(unittest.TestCase):
     def test_settings_invokes_the_posix_wrapper(self):
         settings = json.loads(
@@ -175,17 +214,21 @@ class TestHookWiring(unittest.TestCase):
         self.assertNotIn("||", text)
 
     def test_wrapper_allow_path_at_real_entry(self):
+        sh_bin = find_sh()
+        if not sh_bin:
+            self.skipTest("POSIX sh interpreter not available on this host")
         payload = json.dumps({"tool_input": {"command": "echo hi"}})
         proc = subprocess.run(
-            ["sh", str(ROOT / "scripts" / "run_pretooluse.sh")],
+            [sh_bin, str(ROOT / "scripts" / "run_pretooluse.sh")],
             input=payload, capture_output=True, text=True,
             env={**os.environ, "CLAUDE_PROJECT_DIR": str(ROOT)})
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
     def test_wrapper_fails_closed_without_python(self):
         payload = json.dumps({"tool_input": {"command": "git push"}})
-        sh_bin = shutil.which("sh")
-        self.assertIsNotNone(sh_bin)
+        sh_bin = find_sh()
+        if not sh_bin:
+            self.skipTest("POSIX sh interpreter not available on this host")
         proc = subprocess.run(
             [sh_bin, str(ROOT / "scripts" / "run_pretooluse.sh")],
             input=payload, capture_output=True, text=True,

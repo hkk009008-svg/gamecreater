@@ -19,9 +19,14 @@ import shutil
 import sys
 from pathlib import Path
 
+SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS))
+from gitignored_config import resolve_gitignored  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 CANONICAL = ROOT / "skills"
-SURFACE = ROOT / ".claude" / "skills"
+SURFACES = (ROOT / ".claude" / "skills", ROOT / ".agents" / "skills")
+SURFACE = SURFACES[0]  # backward compatibility
 GAME_LOCAL = ROOT / "GAME.local.md"
 
 
@@ -72,8 +77,9 @@ def desired_mirror() -> dict[str, Path]:
                 raise SystemExit(f"duplicate canonical skill name: {name}")
             out[name] = body
     harness = dict(out)
-    if GAME_LOCAL.is_file():
-        root, slug = parse_game_local(GAME_LOCAL.read_text(encoding="utf-8"))
+    game_local = resolve_gitignored(GAME_LOCAL, cwd=ROOT)
+    if game_local.is_file():
+        root, slug = parse_game_local(game_local.read_text(encoding="utf-8"))
         if root and slug:
             for body in iter_game_skill_bodies(root):
                 name = body.parent.name
@@ -88,10 +94,11 @@ def desired_mirror() -> dict[str, Path]:
     return out
 
 
-def current_surface() -> dict[str, Path]:
-    if not SURFACE.is_dir():
+def current_surface(surface: Path | None = None) -> dict[str, Path]:
+    target = surface if surface is not None else SURFACE
+    if not target.is_dir():
         return {}
-    return {p.parent.name: p for p in sorted(SURFACE.glob("*/SKILL.md"))}
+    return {p.parent.name: p for p in sorted(target.glob("*/SKILL.md"))}
 
 
 def drift(desired: dict[str, Path], current: dict[str, Path]) -> list[str]:
@@ -108,30 +115,38 @@ def drift(desired: dict[str, Path], current: dict[str, Path]) -> list[str]:
     return problems
 
 
-def write_mirror(desired: dict[str, Path]) -> None:
-    SURFACE.mkdir(parents=True, exist_ok=True)
-    for name, src in desired.items():
-        dst_dir = SURFACE / name
-        dst_dir.mkdir(exist_ok=True)
-        shutil.copyfile(src, dst_dir / "SKILL.md")
-    for entry in SURFACE.iterdir():
-        if entry.is_dir() and entry.name not in desired:
-            shutil.rmtree(entry)
+def write_mirror(desired: dict[str, Path], surfaces: tuple[Path, ...] | None = None) -> None:
+    target_surfaces = surfaces if surfaces is not None else SURFACES
+    for surface in target_surfaces:
+        surface.mkdir(parents=True, exist_ok=True)
+        for name, src in desired.items():
+            dst_dir = surface / name
+            dst_dir.mkdir(exist_ok=True)
+            shutil.copyfile(src, dst_dir / "SKILL.md")
+        for entry in surface.iterdir():
+            if entry.is_dir() and entry.name not in desired:
+                shutil.rmtree(entry)
 
 
 def main(argv: list[str]) -> int:
     desired = desired_mirror()
     if "--check" in argv:
-        problems = drift(desired, current_surface())
-        if problems:
+        all_problems = []
+        for surface in SURFACES:
+            problems = drift(desired, current_surface(surface))
+            if problems:
+                rel = surface.relative_to(ROOT).as_posix()
+                for p in problems:
+                    all_problems.append(f"{rel}: {p}")
+        if all_problems:
             print("skill surface drift:")
-            for p in problems:
+            for p in all_problems:
                 print(f"  {p}")
             return 1
-        print(f"surface in sync: {len(desired)} skills")
+        print(f"surface in sync: {len(desired)} skills across {len(SURFACES)} discovery surfaces")
         return 0
     write_mirror(desired)
-    print(f"mirrored {len(desired)} skills into .claude/skills/")
+    print(f"mirrored {len(desired)} skills into {', '.join(s.relative_to(ROOT).as_posix() for s in SURFACES)}")
     return 0
 
 

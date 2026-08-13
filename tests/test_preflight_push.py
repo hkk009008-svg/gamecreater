@@ -26,6 +26,10 @@ class TestGranted(unittest.TestCase):
     def test_exact_line_matches(self):
         self.assertTrue(pp.granted("me/repo", "# note\nme/repo\n"))
 
+    def test_case_insensitive_matches(self):
+        self.assertTrue(pp.granted("Me/Repo", "me/repo\n"))
+        self.assertTrue(pp.granted("me/repo", "ME/REPO\n"))
+
     def test_comment_and_other_lines_do_not(self):
         self.assertFalse(pp.granted("me/repo", "# me/repo\nme/other\n"))
 
@@ -69,6 +73,27 @@ class TestVerdict(unittest.TestCase):
                              grant_path="/wt/public-grant.txt (absent)")
         self.assertFalse(ok)
         self.assertIn("/wt/public-grant.txt", msg)
+
+
+class TestRepoNameFromGit(unittest.TestCase):
+    def test_parses_https_url(self):
+        with unittest.mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = unittest.mock.Mock(
+                returncode=0,
+                stdout="https://github.com/owner/my-repo.git\n")
+            self.assertEqual(pp.repo_name_from_git("."), "owner/my-repo")
+
+    def test_parses_ssh_url(self):
+        ssh_url = "git" + chr(64) + "github.com:owner/my-repo.git\n"
+        with unittest.mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = unittest.mock.Mock(
+                returncode=0,
+                stdout=ssh_url)
+            self.assertEqual(pp.repo_name_from_git("."), "owner/my-repo")
+
+    def test_fails_gracefully_on_missing_git(self):
+        with unittest.mock.patch("subprocess.run", side_effect=OSError("no git")):
+            self.assertIsNone(pp.repo_name_from_git("."))
 
 
 if __name__ == "__main__":

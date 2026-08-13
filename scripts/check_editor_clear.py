@@ -54,6 +54,8 @@ def list_processes() -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     prefix = argv[1] if len(argv) > 1 else "UnrealEditor"
     try:
         hits = sorted(set(matching_processes(list_processes(), prefix)))

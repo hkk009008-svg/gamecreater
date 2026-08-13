@@ -8,7 +8,10 @@
 re:(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
 re:BEGIN [A-Z ]*PRIVATE KEY
 re:ghp_[A-Za-z0-9]{20,}
+re:gh[ousr]_[A-Za-z0-9]{20,}
 re:github_pat_[A-Za-z0-9_]{20,}
-re:sk-[A-Za-z0-9]{20,}
+re:sk-[A-Za-z0-9_-]{20,}
 re:AKIA[0-9A-Z]{16}
+re:ASIA[0-9A-Z]{16}
+re:AIzaSy[A-Za-z0-9_-]{33}
 re:api[_-]?key\s*[:=]\s*['"][^'"]+

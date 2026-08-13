@@ -17,6 +17,7 @@ worktree starts without it (2026-08-13).
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -44,8 +45,9 @@ def parse_gh_view(raw: str) -> tuple[str | None, str | None]:
 def granted(name_with_owner: str | None, grant_text: str) -> bool:
     if not name_with_owner:
         return False
-    lines = [ln.strip() for ln in grant_text.splitlines()]
-    return name_with_owner in [ln for ln in lines if ln and not ln.startswith("#")]
+    target = name_with_owner.strip().lower()
+    lines = [ln.strip().lower() for ln in grant_text.splitlines()]
+    return target in [ln for ln in lines if ln and not ln.startswith("#")]
 
 
 def verdict(visibility: str | None, name: str | None,
@@ -71,7 +73,25 @@ def verdict(visibility: str | None, name: str | None,
         f"'owner/name' line to {grant_path} and rerun.")
 
 
+def repo_name_from_git(repo_dir: str) -> str | None:
+    """Fallback when gh is offline: parse owner/name from remote.origin.url."""
+    try:
+        proc = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=10)
+        if proc.returncode == 0 and proc.stdout.strip():
+            raw = proc.stdout.strip()
+            m = re.search(r"[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$", raw)
+            if m:
+                return m.group(1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
 def main(argv: list[str]) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     repo_dir = argv[1] if len(argv) > 1 else "."
     try:
         proc = subprocess.run(
@@ -81,6 +101,8 @@ def main(argv: list[str]) -> int:
     except (OSError, subprocess.TimeoutExpired):
         raw = ""
     vis, name = parse_gh_view(raw)
+    if not name:
+        name = repo_name_from_git(repo_dir)
     grant_file = resolve_gitignored(GRANT_FILE, cwd=GRANT_FILE.parent)
     if grant_file.is_file():
         grant_text = grant_file.read_text(encoding="utf-8")

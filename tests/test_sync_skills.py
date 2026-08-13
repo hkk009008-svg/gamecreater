@@ -33,10 +33,11 @@ class TestMirrorAndDrift(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
-        self.saved = (ss.ROOT, ss.CANONICAL, ss.SURFACE, ss.GAME_LOCAL)
+        self.saved = (ss.ROOT, ss.CANONICAL, ss.SURFACES, ss.SURFACE, ss.GAME_LOCAL)
         ss.ROOT = root
         ss.CANONICAL = root / "skills"
-        ss.SURFACE = root / ".claude" / "skills"
+        ss.SURFACES = (root / ".claude" / "skills", root / ".agents" / "skills")
+        ss.SURFACE = ss.SURFACES[0]
         ss.GAME_LOCAL = root / "GAME.local.md"
         body = ss.CANONICAL / "harness" / "do-a-thing"
         body.mkdir(parents=True)
@@ -44,7 +45,7 @@ class TestMirrorAndDrift(unittest.TestCase):
                                        encoding="utf-8")
 
     def tearDown(self):
-        ss.ROOT, ss.CANONICAL, ss.SURFACE, ss.GAME_LOCAL = self.saved
+        ss.ROOT, ss.CANONICAL, ss.SURFACES, ss.SURFACE, ss.GAME_LOCAL = self.saved
         self.tmp.cleanup()
 
     def test_missing_surface_is_drift(self):
@@ -53,8 +54,9 @@ class TestMirrorAndDrift(unittest.TestCase):
 
     def test_write_then_check_clean(self):
         ss.write_mirror(ss.desired_mirror())
-        self.assertEqual(ss.drift(ss.desired_mirror(), ss.current_surface()),
-                         [])
+        for s in ss.SURFACES:
+            self.assertEqual(ss.drift(ss.desired_mirror(), ss.current_surface(s)),
+                             [])
 
     def test_content_drift_detected(self):
         ss.write_mirror(ss.desired_mirror())

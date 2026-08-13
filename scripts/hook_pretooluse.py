@@ -34,11 +34,12 @@ import preflight_push  # noqa: E402
 # git[.exe] then only global options, then the `push` subcommand.
 # Must not match: git stash push, git commit -m "push", git log --grep=push.
 # Quoted -C paths are legal and were an allow-path hole if dropped.
+_SHELL_WORD = r"(?:[^\s\"']|\"[^\"]*\"|'[^']*')+"
 _GIT_GLOBAL = (
     r"(?:"
-    r"\s+-C\s+(?:\"[^\"]*\"|'[^']*'|\S+)"
-    r"|\s+-c\s+\S+"
-    r"|\s+--[A-Za-z][A-Za-z0-9-]*(?:=\S+)?"
+    r"\s+-C\s+" + _SHELL_WORD +
+    r"|\s+-c\s+" + _SHELL_WORD +
+    r"|\s+--[A-Za-z][A-Za-z0-9-]*(?:=" + _SHELL_WORD + r")?"
     r"|\s+-[A-Za-z]"
     r")*"
 )
@@ -46,11 +47,24 @@ PUSH_RE = re.compile(
     r"\bgit(?:\.exe)?" + _GIT_GLOBAL + r"\s+push\b",
     re.IGNORECASE,
 )
-EDITOR_RE = re.compile(r"UnrealEditor(?:-Cmd)?(?:\.exe)?", re.IGNORECASE)
+EDITOR_RE = re.compile(
+    r"(?:^|&&|\|\||[;&|\n])\s*"
+    r"(?:&|Start-Process|start|call)?\s*"
+    r"(?:"
+    r"\"[^\"]*?[\\/]UnrealEditor(?:-Cmd)?(?:\.exe)?\""
+    r"|'[^']*?[\\/]UnrealEditor(?:-Cmd)?(?:\.exe)?'"
+    r"|\S*?[\\/]UnrealEditor(?:-Cmd)?(?:\.exe)?\b"
+    r"|[\"']?UnrealEditor(?:-Cmd)?(?:\.exe)?[\"']?\b"
+    r")"
+    r"(?!\.[A-Za-z0-9])",
+    re.IGNORECASE,
+)
 CD_RE = re.compile(
-    r"(?:^|&&|;)\s*(?:cd(?:\s+/d)?|Set-Location(?:\s+-Path)?|pushd)\s+"
-    r"[\"']?([^\"'\n;&|]+)", re.IGNORECASE)
-GIT_C_RE = re.compile(r"\bgit\s+-C\s+[\"']?([^\"'\n;&|]+?)[\"']?\s")
+    r"(?:^|&&|\|\||[;&|\n])\s*(?:cd(?:\s+/d)?|Set-Location(?:\s+-Path)?|pushd)\s+"
+    r"[\"']?([^\"'\n;&|]+)", re.IGNORECASE | re.MULTILINE)
+GIT_C_RE = re.compile(
+    r'\bgit(?:\.exe)?\s+-C\s+(?:"([^"]+)"|\'([^\']+)\'|(\S+))',
+    re.IGNORECASE)
 MSYS_DRIVE_RE = re.compile(r"^/([A-Za-z])(?=/|$)")
 
 
@@ -75,7 +89,9 @@ def command_of(payload: str) -> str:
 def push_target_dir(command: str) -> str:
     m = GIT_C_RE.search(command)
     if m:
-        return normalize_dir(m.group(1).strip())
+        target = m.group(1) or m.group(2) or m.group(3)
+        if target:
+            return normalize_dir(target.strip())
     cds = CD_RE.findall(command)
     if cds:
         return normalize_dir(cds[-1].strip())
@@ -134,6 +150,10 @@ def dispatch(command: str) -> int:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
     try:
         command = command_of(sys.stdin.read())
         if not command:

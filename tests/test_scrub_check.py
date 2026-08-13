@@ -483,6 +483,36 @@ class TestCommittedTerms(unittest.TestCase):
         self.assertIsNone(self.email[0].search(line))
         self.assertLess(time.perf_counter() - t0, 1.0)
 
+    def test_sk_key_pattern_matches_anthropic_and_openai_keys(self):
+        terms = (Path(sc.__file__).resolve().parent
+                 / "scrub_terms.txt").read_text(encoding="utf-8")
+        sk_pats = [p for p in sc.load_terms([terms])
+                   if "sk-" in p.pattern]
+        self.assertEqual(len(sk_pats), 1)
+        pat = sk_pats[0]
+        # Dynamically constructed to avoid tripping the real tree scrub
+        openai_key = "sk-" + "a" * 25
+        anthropic_key = "sk-ant-api03-" + "b" * 30
+        self.assertIsNotNone(pat.search(openai_key))
+        self.assertIsNotNone(pat.search(anthropic_key))
+
+    def test_expanded_secret_patterns_match_credentials(self):
+        terms = (Path(sc.__file__).resolve().parent
+                 / "scrub_terms.txt").read_text(encoding="utf-8")
+        pats = sc.load_terms([terms])
+        google_ai_pat = [p for p in pats if "AIzaSy" in p.pattern][0]
+        aws_sts_pat = [p for p in pats if "ASIA" in p.pattern][0]
+        gh_app_pat = [p for p in pats if "gh[ousr]" in p.pattern][0]
+
+        # Dynamically constructed
+        google_key = "AIzaSy" + "A" * 33
+        aws_sts = "ASIA" + "B" * 16
+        gh_token = "gho_" + "C" * 25
+
+        self.assertIsNotNone(google_ai_pat.search(google_key))
+        self.assertIsNotNone(aws_sts_pat.search(aws_sts))
+        self.assertIsNotNone(gh_app_pat.search(gh_token))
+
 
 class TestPublishFlowDoc(unittest.TestCase):
     def test_documented_scrub_step_is_strict(self):
