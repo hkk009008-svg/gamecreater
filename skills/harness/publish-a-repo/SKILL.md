@@ -25,10 +25,10 @@ see. Four independent auditors each flagged it; nothing else did.
 Audit ALL of it before the flip, each with a fired positive control:
 
 - **Every blob on every remote-reachable ref** — history is permanent
-  after the flip; a fixture deleted at tip (`someone@example.com`,
-  removed by a later commit) stays publicly reachable in its old blob
-  forever. Decide per finding: fixture-on-reserved-domain is info; real
-  data is a rewrite.
+  after the flip; a fixture deleted at tip (a reserved-domain mailbox
+  such as someone at example.com, removed by a later commit) stays
+  publicly reachable in its old blob forever. Decide per finding:
+  fixture-on-reserved-domain is info; real data is a rewrite.
 - **Commit metadata** — author/committer names, emails, timezones on
   every commit. The scrub structurally cannot see this channel.
 - **Ref inventory** — `ls-remote`: every branch and tag flips together;
@@ -46,7 +46,7 @@ Audit ALL of it before the flip, each with a fired positive control:
    outside the repo. The rewrite is destructive; the bundle is the
    rollback (`back-up-before-a-destructive-write`).
 2. **Rewrite while still private** — identity to the platform noreply
-   (`ID+user@users.noreply.github.com`). Prove trees byte-identical
+   (ID+user at users.noreply.github.com). Prove trees byte-identical
    pre/post (`git log --format=%T` pairwise) — metadata only. Prove the
    old identity's absence with the same grep that finds it 2N times in
    the pre-rewrite refs (a zero needs its fired control).
@@ -80,3 +80,7 @@ until the user chose rewrite-then-flip; verified PUBLIC via API.
 
 - 2026-08-13 — Authored from the public-flip arc's inbox entry
   ("publishing exposes a surface").
+- 2026-08-13 — Reserved-domain mailbox examples rewritten so they do not
+  themselves trip the tree scrub (someone at example.com / the GitHub
+  noreply form). The gate is the consumer; a skill that names the
+  pattern must still be a clean tree.

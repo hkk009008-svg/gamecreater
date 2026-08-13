@@ -80,7 +80,7 @@ Claim at the rung you ran, explicitly: "verified at cold-reload" is honest;
 ## Works-here-fails-there between you and the user IS this skill
 
 When your gate passes and the user's session fails, the difference list
-(per `isolate-a-variable`) starts with these four axes — and the fastest
+(per `isolate-a-variable`) starts with these five axes — and the fastest
 discriminating read is usually looking at their actual session
 (`watch-the-live-session`) rather than re-running yours.
 
@@ -108,3 +108,5 @@ on one feature, each caught by the user, not the gate.
   caveat. Forced by: five ray-tracing faults behind a green -nullrhi
   gate, and the scrub suite's cp949 real-entry crash (inbox entries of
   2026-08-13, both repos).
+- 2026-08-13 — Works-here-fails-there paragraph said "four axes" after
+  the fifth axis was added; it now matches the heading.

@@ -20,7 +20,8 @@ named failure behind it.
 - **`.claude/skills/`** — the generated discovery surface (run
   `scripts/sync_skills.py`; don't edit by hand).
 - **`scripts/`** — guards and plumbing: push preflight, editor-clear
-  check, skill sync, publishability scrub.
+  check, skill sync, publishability scrub, and the PreToolUse wrapper
+  that picks a Python interpreter without fail-opening on a block.
 - **`.claude/settings.json`** — hooks that make the two most expensive
   rules mechanical instead of remembered.
 
@@ -32,8 +33,10 @@ named failure behind it.
    and the standing authorization grants.
 3. Create `NOW.md` and a lessons inbox in your game's working root from
    `memory/NOW.template.md` and the inbox pattern in `memory/LESSONS.md`.
-4. Run `python scripts/sync_skills.py` to build the skill surface,
-   including your game's own skills as `game-<name>-*`.
+4. Run `python3 scripts/sync_skills.py` (or `python` where that name
+   exists) to build the skill surface, including your game's own skills
+   as `game-<name>-*`. Canonical game skills live in the working root's
+   `skills/<tier>/<name>/`; Claude-native ones in `.claude/skills/`.
 5. Work. Append lessons as they happen; distill them into skills at arc
    ends; keep `NOW.md` true at every checkpoint.
 

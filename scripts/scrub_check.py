@@ -28,6 +28,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS))
+from gitignored_config import resolve_gitignored  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_TERMS_NAME = "scrub_terms.local.txt"
 TERM_FILES = (ROOT / "scripts" / "scrub_terms.txt",
@@ -111,16 +115,21 @@ def main(argv: list[str]) -> int:
         sys.stdout.reconfigure(errors="backslashreplace")
     texts = []
     for f in TERM_FILES:
+        original = f
+        f = resolve_gitignored(f, cwd=ROOT)
+        if f.is_file() and f.resolve() != original.resolve():
+            print(f"scrub: NOTE -- {original.name} absent here, using {f}")
         if f.is_file():
             texts.append(f.read_text(encoding="utf-8"))
             continue
-        if (f.name == LOCAL_TERMS_NAME
+        if (original.name == LOCAL_TERMS_NAME
                 and _env_flag("SCRUB_REQUIRE_LOCAL_TERMS")):
-            print(f"scrub: {f.name} absent with SCRUB_REQUIRE_LOCAL_TERMS "
-                  "set -- refusing to scan on the generic tier alone")
+            print(f"scrub: {original.name} absent at {original} with "
+                  "SCRUB_REQUIRE_LOCAL_TERMS set -- refusing to scan on "
+                  "the generic tier alone")
             return 2
-        print(f"scrub: WARNING -- term tier {f.name} absent; its patterns "
-              "are not being scanned for")
+        print(f"scrub: WARNING -- term tier {original.name} absent at "
+              f"{original}; its patterns are not being scanned for")
     patterns = load_terms(texts)
     if not patterns:
         print("scrub: no terms loaded -- refusing to report clean on an "

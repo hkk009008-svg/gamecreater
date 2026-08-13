@@ -189,3 +189,31 @@ The next sweep starts below this line.
   re-runs the gate before the push. Candidate mechanization: preflight
   runs the strict scrub when the push target is public/granted; awaiting
   the user's word.
+
+- 2026-08-13 -- System-integrity pass on this repo found the two mechanized
+  guards fail-open or mute on the real wiring: (1) PreToolUse settings
+  invoked `python`, which is not on PATH on a python3-only host, and a
+  hook command that cannot start is a non-2 exit -- Claude Code continues
+  the tool call. (2) Guard verdicts printed to stdout; Claude Code feeds
+  stderr to the model on exit 2, so the block reason never arrived.
+  (3) An exception in the dispatcher is exit 1, which is also continue.
+  (4) A process-list crash or empty parse from check_editor_clear read as
+  "clear to launch". (5) PUSH_RE matched `git stash push` and
+  `git commit -m "...push..."`. (6) Session start pointed at the generated
+  gitignored `.claude/skills/` surface, so a fresh checkout had no
+  discoverable skills, and game-skill sync read only that generated
+  surface (so an OS-shaped game working root's canonical `skills/` was
+  invisible; a generated copy of the harness corpus would have been
+  re-prefixed). Rule: prove a control through the exact wiring the
+  consumer uses, including the interpreter name and which fd the harness
+  reads; fail closed on enumerator crash; point the router at the
+  canonical tree. Candidate skill target: prove-a-control,
+  prove-an-instrument-can-fail, verify-on-the-real-entry.
+  Fixed this session (wrapper + exec, stderr copy, exception -> 2,
+  editor enumerator fail-closed, tighter PUSH_RE, worktree gitignored
+  fallback that names the path, session-start sync, canonical game
+  skills). Limit left open: PreToolUse only sees Claude Code
+  Bash|PowerShell -- a Cursor Shell tool or a raw git push does not hit
+  it. Candidate: a versioned git pre-push hook; awaiting the user's word
+  (same bar as scrub-on-granted-push). `[distilled → code; skill body
+  edits wait for distill]`

@@ -12,7 +12,11 @@ it does not teach. Lessons live in skills, current truth lives in the game's
 2. Read `GAME.local.md` — the active game's roots, engine, and repos. If it
    is missing, copy `templates/GAME.local.template.md` and ask the user to
    confirm the paths.
-3. Read the active game's `NOW.md` (path named in `GAME.local.md`) — the
+3. Build the skill discovery surface: `python3 scripts/sync_skills.py` (or
+   `python` where that name exists). Canonical bodies live in `skills/`;
+   `.claude/skills/` is generated and gitignored, so a fresh checkout has
+   no discoverable surface until this runs.
+4. Read the active game's `NOW.md` (path named in `GAME.local.md`) — the
    current arc, open register, blockers, and the next executable action.
 
 That is the whole orientation. Do not re-derive state from chat memory when
@@ -21,10 +25,12 @@ state wins and `NOW.md` gets corrected in the same session.
 
 ## Work from skills. Default, not an option.
 
-Check `.claude/skills/` for a skill covering the work and follow it. Each
-one was paid for by a real failure; its Provenance section names which.
-Current code wins when a skill drifts: record the conflict in the lessons
-inbox, do not silently work around it.
+Check `skills/<tier>/<name>/` (canonical) for a skill covering the work
+and follow it. `.claude/skills/` is the generated copy the harness
+auto-discovers; do not edit it by hand. Each skill was paid for by a real
+failure; its Provenance section names which. Current code wins when a
+skill drifts: record the conflict in the lessons inbox, do not silently
+work around it.
 
 **Before you launch or write anything**
 `render-a-headless-capture` · `write-a-run-sidecar` ·

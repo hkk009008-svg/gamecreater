@@ -10,10 +10,16 @@ Reads the hook JSON from stdin ({tool_name, tool_input:{command}}), and:
 Exit 0 allows the tool call. Exit 2 blocks it, with the reason on stderr
 (shown to the model). Anything this dispatcher cannot parse is allowed —
 the hook mechanizes two named rules; it is not a general firewall.
+
+Unexpected exceptions fail closed (exit 2). A crash that became a non-2
+exit would be fail-open: Claude Code treats any exit other than 2 as
+"hook error, continue with the tool call".
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import re
 import sys
@@ -25,10 +31,22 @@ sys.path.insert(0, str(SCRIPTS))
 import check_editor_clear  # noqa: E402
 import preflight_push  # noqa: E402
 
-PUSH_RE = re.compile(r"\bgit\b[^\n|;&]*\bpush\b")
+# git[.exe] then only global options, then the `push` subcommand.
+# Must not match: git stash push, git commit -m "push", git log --grep=push.
+# Quoted -C paths are legal and were an allow-path hole if dropped.
+_GIT_GLOBAL = (
+    r"(?:"
+    r"\s+-C\s+(?:\"[^\"]*\"|'[^']*'|\S+)"
+    r"|\s+-c\s+\S+"
+    r"|\s+--[A-Za-z][A-Za-z0-9-]*(?:=\S+)?"
+    r"|\s+-[A-Za-z]"
+    r")*"
+)
+PUSH_RE = re.compile(
+    r"\bgit(?:\.exe)?" + _GIT_GLOBAL + r"\s+push\b",
+    re.IGNORECASE,
+)
 EDITOR_RE = re.compile(r"UnrealEditor(?:-Cmd)?(?:\.exe)?", re.IGNORECASE)
-INTERACTIVE_EDITOR_RE = re.compile(
-    r"UnrealEditor\.exe|Start-Process[^\n]*UnrealEditor\b", re.IGNORECASE)
 CD_RE = re.compile(
     r"(?:^|&&|;)\s*(?:cd(?:\s+/d)?|Set-Location(?:\s+-Path)?|pushd)\s+"
     r"[\"']?([^\"'\n;&|]+)", re.IGNORECASE)
@@ -64,13 +82,35 @@ def push_target_dir(command: str) -> str:
     return "."
 
 
-def main() -> int:
-    command = command_of(sys.stdin.read())
-    if not command:
-        return 0
+def run_guard(fn, argv: list[str]) -> int:
+    """Run a guard, copy its stdout to stderr, map any failure to exit 2.
 
+    Guard scripts print the verdict on stdout (so `python script.py` is
+    readable). Claude Code only feeds stderr to the model on a blocking
+    PreToolUse exit. An exception here is fail-closed, never a crash
+    that becomes exit 1 (continue).
+    """
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = fn(argv)
+    except Exception as e:
+        print(f"guard failed closed: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        text = buf.getvalue()
+        if text:
+            print(text, end="", file=sys.stderr)
+        return 2
+    text = buf.getvalue()
+    if text:
+        print(text, end="", file=sys.stderr)
+    return 0 if rc == 0 else 2
+
+
+def dispatch(command: str) -> int:
     if PUSH_RE.search(command):
-        rc = preflight_push.main(["preflight_push", push_target_dir(command)])
+        rc = run_guard(preflight_push.main,
+                       ["preflight_push", push_target_dir(command)])
         if rc != 0:
             print("push-guard: see the rule in gamecreater CLAUDE.md "
                   "(Authorization boundary).", file=sys.stderr)
@@ -81,7 +121,8 @@ def main() -> int:
         # An interactive editor launch is the user's own act; the guard is
         # for HEADLESS launches colliding with an open editor. Both routes
         # get the same check — a second editor is the failure either way.
-        rc = check_editor_clear.main(["check_editor_clear", "UnrealEditor"])
+        rc = run_guard(check_editor_clear.main,
+                       ["check_editor_clear", "UnrealEditor"])
         if rc != 0:
             print("editor-guard: an editor is already running; close it "
                   "(or have the user close it and say go) before another "
@@ -90,6 +131,18 @@ def main() -> int:
         return 0
 
     return 0
+
+
+def main() -> int:
+    try:
+        command = command_of(sys.stdin.read())
+        if not command:
+            return 0
+        return dispatch(command)
+    except Exception as e:
+        print(f"guard failed closed: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

@@ -5,13 +5,19 @@ project corrupt state in ways that surface later and elsewhere. Checks the
 process list for names starting with the given prefix (default
 UnrealEditor, covering UnrealEditor.exe and UnrealEditor-Cmd.exe).
 
-Exit 0 = clear to launch. Exit 1 = an editor is running (names on stdout).
+Exit 0 = clear to launch. Exit 1 = an editor is running, or the process
+enumerator failed (fail-closed: an empty or crashed listing is not
+proof that no editor is running). Names / reason on stdout.
 """
 
 from __future__ import annotations
 
 import subprocess
 import sys
+
+
+class ProcessListError(Exception):
+    """Process enumerator failed; callers must fail closed."""
 
 
 def matching_processes(process_names: list[str], prefix: str) -> list[str]:
@@ -21,22 +27,40 @@ def matching_processes(process_names: list[str], prefix: str) -> list[str]:
 
 
 def list_processes() -> list[str]:
+    try:
+        if sys.platform == "win32":
+            proc = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                                  capture_output=True, text=True, timeout=30)
+        else:
+            proc = subprocess.run(["ps", "-A", "-o", "comm="],
+                                  capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise ProcessListError(str(e)) from e
+    if proc.returncode != 0:
+        raise ProcessListError(
+            f"process enumerator exited {proc.returncode}")
     if sys.platform == "win32":
-        proc = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                              capture_output=True, text=True, timeout=30)
         names = []
         for line in proc.stdout.splitlines():
             if line.startswith('"'):
                 names.append(line.split('","')[0].lstrip('"'))
-        return names
-    proc = subprocess.run(["ps", "-A", "-o", "comm="],
-                          capture_output=True, text=True, timeout=30)
-    return [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+    else:
+        names = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+    if not names:
+        # A machine with a working enumerator always has some processes.
+        # Zero names means we parsed nothing, not "no editor".
+        raise ProcessListError("process enumerator returned no names")
+    return names
 
 
 def main(argv: list[str]) -> int:
     prefix = argv[1] if len(argv) > 1 else "UnrealEditor"
-    hits = sorted(set(matching_processes(list_processes(), prefix)))
+    try:
+        hits = sorted(set(matching_processes(list_processes(), prefix)))
+    except ProcessListError as e:
+        print(f"LAUNCH BLOCKED: cannot enumerate processes ({e}). "
+              "The never-concurrent-editors rule is fail-closed.")
+        return 1
     if hits:
         print(f"LAUNCH BLOCKED: editor process(es) running: {', '.join(hits)}. "
               "The never-concurrent-editors rule: close the editor (or have "

@@ -325,6 +325,9 @@ class TestRealEntry(unittest.TestCase):
         (root / "scripts").mkdir(parents=True)
         (root / "scripts" / "scrub_check.py").write_bytes(
             Path(sc.__file__).read_bytes())
+        (root / "scripts" / "gitignored_config.py").write_bytes(
+            (Path(sc.__file__).resolve().parent
+             / "gitignored_config.py").read_bytes())
         (root / "scripts" / "scrub_terms.txt").write_text(
             "secretword\n", encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=root, check=True,

@@ -1,5 +1,5 @@
 {
-  "$comment": "Two mechanized rules, both paid for: pushes are preflighted for PRIVATE visibility (preflight_push.py), and engine launches are blocked while an editor is open (check_editor_clear.py). Everything else stays advisory in skills/memory - only rules with a named observed failure get mechanized.",
+  "$comment": "Two mechanized rules, both paid for: pushes are preflighted for PRIVATE visibility (preflight_push.py), and engine launches are blocked while an editor is open (check_editor_clear.py). Invoked via run_pretooluse.sh so the interpreter is python3/python/py and a blocking exit 2 cannot fall through an || chain. Everything else stays advisory in skills/memory - only rules with a named observed failure get mechanized.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/scripts/hook_pretooluse.py\""
+            "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/scripts/run_pretooluse.sh\""
           }
         ]
       }

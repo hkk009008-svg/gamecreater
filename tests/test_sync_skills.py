@@ -1,3 +1,4 @@
+import re
 import sys
 import tempfile
 import unittest
@@ -6,6 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import sync_skills as ss
+
+HARNESS_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestParseGameLocal(unittest.TestCase):
@@ -83,6 +86,75 @@ class TestMirrorAndDrift(unittest.TestCase):
         ss.write_mirror(desired)
         self.assertTrue(
             (ss.SURFACE / "game-demo-fix-a-widget" / "SKILL.md").is_file())
+
+    def test_game_canonical_layout_is_preferred(self):
+        game = Path(self.tmp.name) / "gamerepo"
+        gskill = game / "skills" / "harness" / "fix-a-widget"
+        gskill.mkdir(parents=True)
+        (gskill / "SKILL.md").write_text("canonical game body",
+                                         encoding="utf-8")
+        stale = game / ".claude" / "skills" / "fix-a-widget"
+        stale.mkdir(parents=True)
+        (stale / "SKILL.md").write_text("stale generated copy",
+                                        encoding="utf-8")
+        ss.GAME_LOCAL.write_text(
+            f"- Working root (a git repo): {game}\n- Short slug: demo\n",
+            encoding="utf-8")
+        desired = ss.desired_mirror()
+        self.assertEqual(
+            desired["game-demo-fix-a-widget"].read_text(encoding="utf-8"),
+            "canonical game body")
+
+    def test_identical_harness_copy_is_not_reprefixed(self):
+        game = Path(self.tmp.name) / "gamerepo"
+        copy = game / "skills" / "harness" / "do-a-thing"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_bytes(
+            (ss.CANONICAL / "harness" / "do-a-thing" / "SKILL.md").read_bytes())
+        ss.GAME_LOCAL.write_text(
+            f"- Working root (a git repo): {game}\n- Short slug: demo\n",
+            encoding="utf-8")
+        desired = ss.desired_mirror()
+        self.assertNotIn("game-demo-do-a-thing", desired)
+        self.assertIn("do-a-thing", desired)
+
+    def test_modified_harness_copy_is_kept_as_game_override(self):
+        game = Path(self.tmp.name) / "gamerepo"
+        copy = game / "skills" / "harness" / "do-a-thing"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_text("game-specific tighter binding\n",
+                                       encoding="utf-8")
+        ss.GAME_LOCAL.write_text(
+            f"- Working root (a git repo): {game}\n- Short slug: demo\n",
+            encoding="utf-8")
+        desired = ss.desired_mirror()
+        self.assertIn("game-demo-do-a-thing", desired)
+        self.assertIn("do-a-thing", desired)
+
+
+class TestSessionRouter(unittest.TestCase):
+    def test_session_start_builds_the_generated_surface(self):
+        text = (HARNESS_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        start = text.split("## Work from skills")[0]
+        self.assertIn("sync_skills.py", start)
+
+    def test_work_from_skills_names_the_canonical_tree(self):
+        text = (HARNESS_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        work = text.split("## Work from skills")[1].split("## Authorization")[0]
+        self.assertIn("`skills/", work)
+
+    def test_frontmatter_name_matches_directory(self):
+        for body in sorted((HARNESS_ROOT / "skills").glob("*/*/SKILL.md")):
+            text = body.read_text(encoding="utf-8")
+            m = re.search(r"^name:\s*(.+)$", text, re.MULTILINE)
+            self.assertIsNotNone(m, body)
+            self.assertEqual(m.group(1).strip(), body.parent.name)
+
+    def test_category_readmes_exist_for_retirement(self):
+        for tier in ("harness", "method", "lifecycle"):
+            readme = HARNESS_ROOT / "skills" / tier / "README.md"
+            self.assertTrue(readme.is_file(), readme)
+            self.assertIn("tombstone", readme.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

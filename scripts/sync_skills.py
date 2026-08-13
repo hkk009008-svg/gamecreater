@@ -39,6 +39,29 @@ def parse_game_local(text: str) -> tuple[Path | None, str | None]:
     return root, slug
 
 
+def iter_game_skill_bodies(root: Path) -> list[Path]:
+    """Game skill bodies: canonical layout first, Claude-native as fill-in.
+
+    An OS-shaped working root keeps skills in skills/<tier>/<name>/SKILL.md
+    (same as this repo). A game that only has Claude-native skills keeps
+    them in .claude/skills/<name>/SKILL.md. Canonical wins on name clash
+    so a generated surface is not preferred over its source.
+    """
+    found: dict[str, Path] = {}
+    skills_root = root / "skills"
+    if skills_root.is_dir():
+        for body in sorted(skills_root.glob("*/*/SKILL.md")):
+            name = body.parent.name
+            if name in found:
+                raise SystemExit(f"duplicate game skill name: {name}")
+            found[name] = body
+    claude = root / ".claude" / "skills"
+    if claude.is_dir():
+        for body in sorted(claude.glob("*/SKILL.md")):
+            found.setdefault(body.parent.name, body)
+    return [found[k] for k in sorted(found)]
+
+
 def desired_mirror() -> dict[str, Path]:
     """Map of surface skill name -> canonical SKILL.md path."""
     out: dict[str, Path] = {}
@@ -48,13 +71,20 @@ def desired_mirror() -> dict[str, Path]:
             if name in out:
                 raise SystemExit(f"duplicate canonical skill name: {name}")
             out[name] = body
+    harness = dict(out)
     if GAME_LOCAL.is_file():
         root, slug = parse_game_local(GAME_LOCAL.read_text(encoding="utf-8"))
         if root and slug:
-            game_skills = root / ".claude" / "skills"
-            if game_skills.is_dir():
-                for body in sorted(game_skills.glob("*/SKILL.md")):
-                    out[f"game-{slug}-{body.parent.name}"] = body
+            for body in iter_game_skill_bodies(root):
+                name = body.parent.name
+                # Identical copy of a harness skill is not "the game's own".
+                src = harness.get(name)
+                if src is not None and src.read_bytes() == body.read_bytes():
+                    continue
+                key = f"game-{slug}-{name}"
+                if key in out:
+                    raise SystemExit(f"duplicate game skill name: {key}")
+                out[key] = body
     return out
 
 
