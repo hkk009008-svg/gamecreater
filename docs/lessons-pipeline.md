@@ -48,10 +48,21 @@ code wins — the fix waits for the distill, when it can be judged cold.
 ## Stage 3 — verify the corpus stays loadable
 
 After any distill: `sync_skills.py --check` (surface matches canonical),
-and `scrub_check.py` (nothing project-specific leaked into the general
-tier). A skill that grows past a screen of text is a candidate for
-splitting — discovery beats completeness, because a skill that isn't
-loaded teaches nothing.
+and the scrub gate in strict mode:
+
+    SCRUB_REQUIRE_LOCAL_TERMS=1 SCRUB_REQUIRE_TOTAL_SCAN=1 \
+        python scripts/scrub_check.py
+
+Strict mode is what makes "clean" mean it: `SCRUB_REQUIRE_LOCAL_TERMS=1`
+refuses (exit 2) unless the project-noun tier actually loaded, and
+`SCRUB_REQUIRE_TOTAL_SCAN=1` refuses if any tracked file was skipped or
+any line truncated-scanned. Without the flags the gate degrades to the
+generic patterns alone and tolerates skips — a publish must not
+(2026-08-13 adversarial pass).
+
+A skill that grows past a screen of text is a candidate for splitting —
+discovery beats completeness, because a skill that isn't loaded teaches
+nothing.
 
 ## Retirement
 

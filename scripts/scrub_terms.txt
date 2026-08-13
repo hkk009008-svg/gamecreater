@@ -2,7 +2,10 @@
 # in scrub_terms.local.txt at the repo root — that file is gitignored so
 # the public tree never carries the very names it must not contain.
 # Lines: literal (case-insensitive substring) or re:<regex>.
-re:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
+# The leading lookbehind pins the email match to token-run starts:
+# without it re.search retries every offset inside a long @-less token
+# and the scan goes quadratic (measured 2026-08-13: 80 KB line -> 35 s).
+re:(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
 re:BEGIN [A-Z ]*PRIVATE KEY
 re:ghp_[A-Za-z0-9]{20,}
 re:github_pat_[A-Za-z0-9_]{20,}
