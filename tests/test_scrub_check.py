@@ -1,4 +1,9 @@
+import contextlib
+import io
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -41,6 +46,132 @@ class TestScanText(unittest.TestCase):
     def test_case_insensitive_literal(self):
         hits = sc.scan_text("a.txt", "PROJECTNOUN", self.pats)
         self.assertEqual(len(hits), 1)
+
+
+class TestMainVerdicts(unittest.TestCase):
+    """Regression pins for the vacuous-green defects (2026-08-13 audit):
+    a green verdict must carry its denominators, and main() must refuse
+    when any of them collapses instead of reporting clean over nothing."""
+
+    def setUp(self):
+        self._root = sc.ROOT
+        self._term_files = sc.TERM_FILES
+        self._env = os.environ.pop("SCRUB_REQUIRE_LOCAL_TERMS", None)
+        self._td = tempfile.TemporaryDirectory()
+        self.dir = Path(self._td.name)
+
+    def tearDown(self):
+        sc.ROOT = self._root
+        sc.TERM_FILES = self._term_files
+        os.environ.pop("SCRUB_REQUIRE_LOCAL_TERMS", None)
+        if self._env is not None:
+            os.environ["SCRUB_REQUIRE_LOCAL_TERMS"] = self._env
+        self._td.cleanup()
+
+    def _terms(self, body="secretword\n", name="terms.txt"):
+        f = self.dir / name
+        f.write_text(body, encoding="utf-8")
+        return f
+
+    def _git_repo(self, *files):
+        repo = self.dir / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True,
+                       capture_output=True)
+        for name, body in files:
+            (repo / name).write_bytes(body)
+            subprocess.run(["git", "add", name], cwd=repo, check=True,
+                           capture_output=True)
+        return repo
+
+    def _run_main(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = sc.main([])
+        return rc, buf.getvalue()
+
+    def test_enumerator_failure_is_a_distinct_failure(self):
+        # git ls-files fails outside a repo; pre-fix this printed
+        # "scrub clean: 0 tracked text files" and exited 0.
+        sc.TERM_FILES = (self._terms(),)
+        sc.ROOT = self.dir / "notarepo"
+        sc.ROOT.mkdir()
+        rc, out = self._run_main()
+        self.assertEqual(rc, 2)
+        self.assertIn("ls-files failed", out)
+        self.assertNotIn("scrub clean", out)
+
+    def test_zero_files_enumerated_is_a_distinct_failure(self):
+        sc.TERM_FILES = (self._terms(),)
+        sc.ROOT = self._git_repo()  # valid repo, nothing tracked
+        rc, out = self._run_main()
+        self.assertEqual(rc, 2)
+        self.assertIn("0 of 0", out)
+        self.assertNotIn("scrub clean", out)
+
+    def test_missing_local_terms_warns_naming_the_tier(self):
+        absent = self.dir / "scrub_terms.local.txt"  # never created
+        sc.TERM_FILES = (self._terms(), absent)
+        sc.ROOT = self._git_repo(("doc.txt", b"clean\n"))
+        rc, out = self._run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn("WARNING", out)
+        self.assertIn("scrub_terms.local.txt", out)
+
+    def test_strict_env_hard_fails_on_missing_local_terms(self):
+        absent = self.dir / "scrub_terms.local.txt"
+        sc.TERM_FILES = (self._terms(), absent)
+        sc.ROOT = self._git_repo(("doc.txt", b"clean\n"))
+        os.environ["SCRUB_REQUIRE_LOCAL_TERMS"] = "1"
+        rc, out = self._run_main()
+        self.assertEqual(rc, 2)
+        self.assertIn("SCRUB_REQUIRE_LOCAL_TERMS", out)
+
+    def test_strict_env_passes_when_local_terms_present(self):
+        local = self._terms("localnoun\n", name="scrub_terms.local.txt")
+        sc.TERM_FILES = (self._terms(), local)
+        sc.ROOT = self._git_repo(("doc.txt", b"clean\n"))
+        os.environ["SCRUB_REQUIRE_LOCAL_TERMS"] = "1"
+        rc, out = self._run_main()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("WARNING", out)
+
+    def test_no_patterns_refuses_as_instrument_failure(self):
+        sc.TERM_FILES = (self._terms("# only comments\n"),)
+        sc.ROOT = self._git_repo(("doc.txt", b"clean\n"))
+        rc, out = self._run_main()
+        self.assertEqual(rc, 2)
+        self.assertIn("no terms loaded", out)
+
+    def test_nul_file_skip_is_counted_in_summary(self):
+        # UTF-16 text (common from Windows tooling) has NULs in its first
+        # bytes and is skipped as binary — the summary must say so.
+        sc.TERM_FILES = (self._terms(),)
+        sc.ROOT = self._git_repo(("doc.txt", b"clean\n"),
+                                 ("utf16.txt", "clean\n".encode("utf-16")))
+        rc, out = self._run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn("1 tracked text files", out)
+        self.assertIn("1 skipped", out)
+
+    def test_unreadable_file_skip_is_counted_in_summary(self):
+        sc.TERM_FILES = (self._terms(),)
+        repo = self._git_repo(("doc.txt", b"clean\n"),
+                              ("gone.txt", b"tracked then deleted\n"))
+        (repo / "gone.txt").unlink()  # still in the index -> enumerated
+        sc.ROOT = repo
+        rc, out = self._run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn("1 skipped", out)
+
+    def test_all_files_skipped_refuses(self):
+        # Enumeration succeeded but nothing was scannable: still vacuous.
+        sc.TERM_FILES = (self._terms(),)
+        sc.ROOT = self._git_repo(("utf16.txt", "clean\n".encode("utf-16")))
+        rc, out = self._run_main()
+        self.assertEqual(rc, 2)
+        self.assertIn("0 of 1", out)
+        self.assertIn("1 skipped", out)
 
 
 if __name__ == "__main__":
