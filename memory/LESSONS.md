@@ -105,3 +105,16 @@ provenance.
   non-git dir → "scrub clean: 0 tracked text files, 7 patterns", exit 0.
   Candidate skill target: prove-an-instrument-can-fail; concrete fix
   spawned as a follow-up task.
+
+- 2026-08-13 — The scrub-hardening branch arrived 47-green with a claimed
+  real-entry check, yet `python scripts/scrub_check.py` crashed on this
+  machine: every test drove main() in-process against a StringIO, which
+  never encodes, while the real console encodes cp949 and died on em-dash
+  message text — collapsing "warning" into exit 1, the code that means
+  "hits found". Same class: an unlaunchable git binary tracebacked into
+  exit 1 too. Fixed with subprocess TestRealEntry tests (red first on this
+  machine), ASCII verdict text, a backslashreplace stdout fallback, and
+  exit-2 on enumeration launch failure. Rule: a gate's consumer entry
+  includes the console codepage it prints under; in-process green proves
+  logic, not the instrument. Candidate skill target:
+  verify-on-the-real-entry (generalize beyond gameplay to instruments).
