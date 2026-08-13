@@ -143,3 +143,17 @@ provenance.
   documents an off-value, test the off-value. All three killer tests were
   run red against their exact mutants before landing. Candidate skill
   target: prove-a-control (mutation as the red-run for regression pins).
+
+- 2026-08-13 — The push guard blocked a push the user had already granted:
+  gitignored config (public-grant.txt, scrub_terms.local.txt) does not
+  follow a branch into a git worktree, and the PreToolUse hook runs the
+  worktree's copy of the preflight, which resolves the grant file against
+  its own tree — so every worktree session starts with every gitignored
+  tier absent. Fail-closed turned this into a visible block here, but the
+  same mechanism degrades the scrub gate silently-open (7 of 24 patterns)
+  in the same worktree. Rule: a guard that reads gitignored config must
+  say which tree's config it read, and a worktree session must copy the
+  gitignored tiers in (or point at the primary checkout's) before trusting
+  any gate. Evidence: preflight exit 1 from the worktree with the grant
+  line present in the primary root; exit 0 after copying the file in.
+  Candidate skill target: verify-on-the-real-entry or prove-a-control.
