@@ -83,3 +83,25 @@ provenance.
   hook cwd is the project dir as fallback). Evidence: this session's
   PreToolUse errors, then a fake `git push` blocked through the new wiring.
   Candidate skill target: prove-a-control.
+
+- 2026-08-13 — A publish gate scrubbed every blob in every rev and passed
+  while the user's personal email rode along in the author/committer field
+  of every commit — a channel a tree scrub structurally cannot see. Caught
+  only because the pre-flip audit swept the whole publishable surface:
+  blobs on all refs, commit metadata, ref inventory, platform surfaces
+  (issues/wiki/description). Fixed by rewriting all commits to the GitHub
+  noreply identity before the flip (trees proven byte-identical). Rule:
+  "scrub is clean" covers a tree; publishing exposes a surface — audit the
+  surface. Candidate skill target: probe-a-claim, or a new
+  publish-a-repo skill.
+
+- 2026-08-13 — The scrub gate goes green vacuously: with `git ls-files`
+  failing (e.g. run outside a repo) it prints "scrub clean: 0 tracked text
+  files" and exits 0, and with the gitignored scrub_terms.local.txt absent
+  (any fresh clone) it silently degrades from 24 patterns to 7 — it only
+  refuses at zero patterns. Rule: a green verdict must carry its
+  denominators (files scanned, patterns loaded) and refuse or warn when
+  either collapses. Evidence: auditor ran scripts/scrub_check.py in a
+  non-git dir → "scrub clean: 0 tracked text files, 7 patterns", exit 0.
+  Candidate skill target: prove-an-instrument-can-fail; concrete fix
+  spawned as a follow-up task.
