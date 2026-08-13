@@ -55,14 +55,21 @@ def scan_text(name: str, text: str,
 
 
 def tracked_files() -> list[Path] | None:
-    proc = subprocess.run(["git", "ls-files"], cwd=ROOT,
-                          capture_output=True, text=True, timeout=60)
+    try:
+        proc = subprocess.run(["git", "ls-files"], cwd=ROOT,
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
     if proc.returncode != 0:
         return None
     return [ROOT / p for p in proc.stdout.splitlines() if p.strip()]
 
 
 def main(argv: list[str]) -> int:
+    # Consoles on this machine encode with the OEM codepage (cp949), not
+    # UTF-8: the gate must never die encoding its own verdict.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     texts = []
     for f in TERM_FILES:
         if f.is_file():
@@ -72,19 +79,19 @@ def main(argv: list[str]) -> int:
                 and os.environ.get("SCRUB_REQUIRE_LOCAL_TERMS", "")
                 not in ("", "0")):
             print(f"scrub: {f.name} absent with SCRUB_REQUIRE_LOCAL_TERMS "
-                  "set — refusing to scan on the generic tier alone")
+                  "set -- refusing to scan on the generic tier alone")
             return 2
-        print(f"scrub: WARNING — term tier {f.name} absent; its patterns "
+        print(f"scrub: WARNING -- term tier {f.name} absent; its patterns "
               "are not being scanned for")
     patterns = load_terms(texts)
     if not patterns:
-        print("scrub: no terms loaded — refusing to report clean on an "
+        print("scrub: no terms loaded -- refusing to report clean on an "
               "empty instrument (see prove-an-instrument-can-fail)")
         return 2
     files = tracked_files()
     if files is None:
-        print("scrub: git ls-files failed — cannot enumerate the "
-              "publishable set (not a git repo?)")
+        print("scrub: git ls-files failed -- cannot enumerate the "
+              "publishable set (not a git repo, or git unavailable?)")
         return 2
     all_hits: list[str] = []
     scanned = 0
@@ -104,7 +111,7 @@ def main(argv: list[str]) -> int:
                                   patterns))
     if not scanned:
         print(f"scrub: scanned 0 of {len(files)} tracked files "
-              f"({skipped} skipped) — refusing to report clean on an "
+              f"({skipped} skipped) -- refusing to report clean on an "
               "empty scan")
         return 2
     if all_hits:

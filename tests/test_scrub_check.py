@@ -174,5 +174,70 @@ class TestMainVerdicts(unittest.TestCase):
         self.assertIn("1 skipped", out)
 
 
+class TestRealEntry(unittest.TestCase):
+    """The consumer's entry is `python scripts/scrub_check.py` on a console
+    that encodes with the machine codepage (cp949 on this machine), not an
+    in-process call with a StringIO stdout. The exit contract (0 clean /
+    1 dirty / 2 broken instrument) must hold there, which also means every
+    printed message must survive that encoding."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        root = Path(self._td.name) / "proj"
+        (root / "scripts").mkdir(parents=True)
+        (root / "scripts" / "scrub_check.py").write_bytes(
+            Path(sc.__file__).read_bytes())
+        (root / "scripts" / "scrub_terms.txt").write_text(
+            "secretword\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True,
+                       capture_output=True)
+        (root / "doc.txt").write_bytes(b"clean\n")
+        # Track only the content file: the fixture's own term list holds a
+        # literal that would (correctly) self-match if it were scanned.
+        subprocess.run(["git", "add", "doc.txt"], cwd=root, check=True,
+                       capture_output=True)
+        self.root = root
+        # Strip PYTHON* so PYTHONIOENCODING/PYTHONUTF8 cannot mask the
+        # console codepage the real gate runs under.
+        self.env = {k: v for k, v in os.environ.items()
+                    if not k.startswith("PYTHON")}
+        self.env.pop("SCRUB_REQUIRE_LOCAL_TERMS", None)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _run(self, **env):
+        return subprocess.run(
+            [sys.executable, str(self.root / "scripts" / "scrub_check.py")],
+            capture_output=True, text=True, errors="replace",
+            env={**self.env, **env})
+
+    def test_missing_local_tier_warns_and_exits_zero(self):
+        proc = self._run()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("WARNING", proc.stdout)
+
+    def test_strict_refuses_with_exit_2(self):
+        proc = self._run(SCRUB_REQUIRE_LOCAL_TERMS="1")
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("SCRUB_REQUIRE_LOCAL_TERMS", proc.stdout)
+
+    def test_git_binary_unavailable_is_instrument_failure(self):
+        # An empty PATH makes the git subprocess unlaunchable; the gate
+        # must refuse as a broken instrument (exit 2), not crash into the
+        # exit code that means "hits found".
+        proc = self._run(PATH="")
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("cannot enumerate", proc.stdout)
+
+    def test_dirty_tree_exits_one_with_hits(self):
+        (self.root / "dirty.txt").write_bytes(b"has secretword inside\n")
+        subprocess.run(["git", "add", "dirty.txt"], cwd=self.root,
+                       check=True, capture_output=True)
+        proc = self._run()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("SCRUB FAILED", proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
