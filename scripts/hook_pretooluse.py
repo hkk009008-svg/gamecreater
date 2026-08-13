@@ -33,6 +33,15 @@ CD_RE = re.compile(
     r"(?:^|&&|;)\s*(?:cd(?:\s+/d)?|Set-Location(?:\s+-Path)?|pushd)\s+"
     r"[\"']?([^\"'\n;&|]+)", re.IGNORECASE)
 GIT_C_RE = re.compile(r"\bgit\s+-C\s+[\"']?([^\"'\n;&|]+?)[\"']?\s")
+MSYS_DRIVE_RE = re.compile(r"^/([A-Za-z])(?=/|$)")
+
+
+def normalize_dir(d: str) -> str:
+    # Git-Bash writes '/d/Unreal'; the preflight runs under Windows
+    # Python, whose subprocess cwd cannot be a POSIX drive path — gh
+    # never ran and the guard fail-close blocked an authorized push
+    # (2026-08-13). Non-drive POSIX paths pass through untouched.
+    return MSYS_DRIVE_RE.sub(lambda m: m.group(1).upper() + ":", d)
 
 
 def command_of(payload: str) -> str:
@@ -48,10 +57,10 @@ def command_of(payload: str) -> str:
 def push_target_dir(command: str) -> str:
     m = GIT_C_RE.search(command)
     if m:
-        return m.group(1).strip()
+        return normalize_dir(m.group(1).strip())
     cds = CD_RE.findall(command)
     if cds:
-        return cds[-1].strip()
+        return normalize_dir(cds[-1].strip())
     return "."
 
 

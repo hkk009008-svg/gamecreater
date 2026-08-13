@@ -37,7 +37,18 @@ class TestPushTargetDir(unittest.TestCase):
 
     def test_last_cd_wins(self):
         cmd = "cd /d/a && ls && cd /d/b && git push"
-        self.assertEqual(hook.push_target_dir(cmd), "/d/b")
+        self.assertEqual(hook.push_target_dir(cmd), "D:/b")
+
+    def test_msys_drive_paths_normalize_for_windows(self):
+        # Git-Bash '-C /d/Unreal' must reach the preflight as 'D:/Unreal':
+        # Windows Python cannot cwd into '/d/...', gh never ran, and the
+        # guard fail-close blocked an authorized push (2026-08-13).
+        self.assertEqual(
+            hook.push_target_dir("git -C /d/Unreal push origin main"),
+            "D:/Unreal")
+        # non-drive POSIX paths pass through untouched
+        self.assertEqual(
+            hook.push_target_dir("git -C /tmp/repo push"), "/tmp/repo")
 
     def test_default_is_cwd(self):
         self.assertEqual(hook.push_target_dir("git push"), ".")

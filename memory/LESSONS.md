@@ -134,6 +134,18 @@ provenance.
   gate whether skipped>0 may still exit 0. Deferred as a spawned task;
   candidate skill target: prove-an-instrument-can-fail.
 
+- 2026-08-13 — The push-guard false-blocked an authorized push: the Bash
+  tool wrote `git -C /d/Unreal push`, the hook handed the POSIX drive
+  path to Windows Python as a subprocess cwd, gh never ran, and the
+  fail-closed default read as "cannot verify visibility". Right failure
+  direction, wrong verdict — and invisible until the first authorized
+  push used that path form, because every earlier wiring proof used
+  paths that were SUPPOSED to block. Rule: a guard's inputs cross shell
+  dialects; normalize at the boundary (/d/... → D:/...), and prove the
+  ALLOW path live in every dialect the tools emit, not only the block
+  path. Fixed with red-first pins in test_hook_pretooluse.py.
+  Candidate skill target: prove-a-control (allow-path proofs per dialect).
+
 - 2026-08-13 — A mutation audit of a fresh 51-test suite found the two
   halves of a paired defense (ASCII messages + encoding backstop) were
   pinned only as a conjunction: either half reverted alone, suite green;
