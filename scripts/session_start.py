@@ -204,10 +204,32 @@ def inbox_block(g: dict) -> None:
         if n < 0:
             warn(f"{label} lessons inbox unreadable at {p}")
             continue
+        # Append-only verdict against the inbox's own committed HEAD. A
+        # count survives a rewrite; the prefix check does not, and a session
+        # that starts on a silently edited inbox trusts lessons that may no
+        # longer be there.
+        ao = ""
+        try:
+            import check_lessons_inbox as cli
+            repo = p.parent
+            probe = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=15)
+            if probe.returncode == 0:
+                verdict, detail, _ = cli.check_one(
+                    Path(probe.stdout.strip()), p)
+                ao = f", append-only {verdict}"
+                if verdict == "VIOLATION":
+                    warn(f"{label} inbox EDITED since HEAD - "
+                         + detail.splitlines()[0]
+                         + " (committed lessons changed; distill in "
+                           "progress, or a lesson is dying)")
+        except Exception as e:
+            ao = f", append-only UNCHECKED({type(e).__name__})"
         since = days_since(mark) if mark else None
         out(f"Lessons/{label}: {n} entries"
             + (f", last distill {mark} ({age_str(since)})" if mark
-               else ", NO distill marker"))
+               else ", NO distill marker") + ao)
         if since is not None and since >= 7:
             warn(f"{label} inbox has not been distilled in {since}d "
                  f"({n} entries) - run distill-an-arc")

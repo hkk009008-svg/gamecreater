@@ -59,6 +59,18 @@ EDITOR_RE = re.compile(
     r"(?!\.[A-Za-z0-9])",
     re.IGNORECASE,
 )
+# A lessons inbox is append-only: a single `>` (or an overwriting cmdlet)
+# aimed at LESSONS.md replaces every lesson in it with whatever one command
+# was running, and the loss is silent until the next session-start check.
+# `>>` stays legal -- appending is the inbox's whole job. Deliberately
+# narrow: this guards the named files against shell truncation, it does not
+# try to police every editing tool (check_lessons_inbox.py is the detector
+# for those).
+INBOX_TRUNCATE_RE = re.compile(
+    r"(?:(?<!>)>(?!>)|\btee\b(?!\s+-a)[^|;&]*?|\bSet-Content\b[^|;&\n]*?"
+    r"|\bOut-File\b(?![^|;&\n]*-Append)[^|;&\n]*?)"
+    r"\s*[\"']?[^\s\"'|;&]*LESSONS\.md\b",
+    re.IGNORECASE)
 CD_RE = re.compile(
     r"(?:^|&&|\|\||[;&|\n])\s*(?:cd(?:\s+/d)?|Set-Location(?:\s+-Path)?|pushd)\s+"
     r"[\"']?([^\"'\n;&|]+)", re.IGNORECASE | re.MULTILINE)
@@ -164,6 +176,14 @@ def dispatch_tool(tool_name: str) -> int:
 
 
 def dispatch(command: str) -> int:
+    if INBOX_TRUNCATE_RE.search(command):
+        print("inbox-guard: that command TRUNCATES a lessons inbox "
+              "(single '>' / Set-Content / Out-File / tee without append). "
+              "Lessons are append-only; use '>>' to add, and distill-an-arc "
+              "is the only sanctioned rewrite. Rule: gamecreater CLAUDE.md, "
+              "the improvement loop.", file=sys.stderr)
+        return 2
+
     if PUSH_RE.search(command):
         rc = run_guard(preflight_push.main,
                        ["preflight_push", push_target_dir(command)])
