@@ -1,0 +1,12 @@
+{
+  "$comment": "Unreal's official MCP server (Epic, plugin ModelContextProtocol, experimental, prebuilt DLLs shipped with UE 5.8.1 - enabling it was a config change, not a compile). It is served BY A RUNNING EDITOR: nothing here starts it, and every tool call fails until the user opens D:/Kurogane/Kurogane.uproject. Written here rather than accepting the plugin's own 'ModelContextProtocol.GenerateClientConfig ClaudeCode' output, because for an installed engine build that command writes to FPaths::ProjectDir() -> D:/Kurogane/.mcp.json, and Claude Code sessions run with cwd C:/gamecreater, where it would never be read.",
+  "$transport": "HTTP/SSE on loopback, no authentication layer. Port 8000 and path /mcp are the plugin defaults (ModelContextProtocolSettings.h:24-38); change both here and in D:/Kurogane/Saved/Config/WindowsEditor/EditorPerProjectUserSettings.ini together or the client points at nothing.",
+  "$tool_surface": "bEnableToolSearch defaults true, so tools/list advertises only list_toolsets, describe_toolset and call_tool - toolset tools are discovered on demand instead of flooding the context. The project already enables AllToolsets (21 toolsets); AnimationAssistantToolset, AutomationTestToolset and PhysicsToolsets line up with the audit-animation-montage-pipeline, pin-collision-and-trace-matrix and cloth-sim skills.",
+  "$conflict": "READ THIS BEFORE USING IT. An editor held open to serve MCP blocks EVERY headless capture, probe and sweep: check_editor_clear.py fails closed on any process named UnrealEditor*. The two modes are mutually exclusive by construction, not by accident. scripts/mcp_session.py declares which mode is active so the collision reports itself instead of looking like a broken guard.",
+  "mcpServers": {
+    "unreal-mcp": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}

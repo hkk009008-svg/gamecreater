@@ -86,6 +86,32 @@ def command_of(payload: str) -> str:
     return cmd if isinstance(cmd, str) else ""
 
 
+def tool_of(payload: str) -> str:
+    """The tool NAME, which is the only thing an MCP call reliably carries.
+
+    An MCP tool call has no `tool_input.command`, so command_of() returns ""
+    and the dispatcher allowed it unconditionally. That was harmless only
+    while zero MCP servers were configured; enabling Unreal's MCP server
+    changes that, and any future git-capable MCP server would make
+    CLAUDE.md's push rule false without a line of this file changing.
+    """
+    try:
+        data = json.loads(payload.lstrip("﻿ \r\n\t"))
+    except json.JSONDecodeError:
+        return ""
+    name = data.get("tool_name")
+    return name if isinstance(name, str) else ""
+
+
+# MCP tool names that perform the acts CLAUDE.md reserves to the user.
+# Matched on the NAME because an MCP payload's arguments are server-defined
+# and cannot be parsed generically. Deliberately narrow: this blocks the
+# named acts, it is not a general MCP firewall, and it says so when it fires.
+MCP_RESERVED_RE = re.compile(
+    r"(?:^|_)(?:push|publish|merge|make_public|set_visibility|delete_repo)"
+    r"(?:_|$)", re.IGNORECASE)
+
+
 def push_target_dir(command: str) -> str:
     m = GIT_C_RE.search(command)
     if m:
@@ -123,6 +149,20 @@ def run_guard(fn, argv: list[str]) -> int:
     return 0 if rc == 0 else 2
 
 
+def dispatch_tool(tool_name: str) -> int:
+    """Rules that key on the tool NAME rather than a shell string."""
+    if not tool_name.startswith("mcp__"):
+        return 0
+    if MCP_RESERVED_RE.search(tool_name):
+        print(f"MCP BLOCKED: '{tool_name}' names an act CLAUDE.md reserves "
+              f"to the user (push / merge / publish / visibility change). "
+              f"The shell-command guards cannot see MCP calls at all, so "
+              f"this rule keys on the tool name. Have the user authorize "
+              f"the exact effect, executor and target.", file=sys.stderr)
+        return 2
+    return 0
+
+
 def dispatch(command: str) -> int:
     if PUSH_RE.search(command):
         rc = run_guard(preflight_push.main,
@@ -155,7 +195,11 @@ def main() -> int:
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(errors="backslashreplace")
     try:
-        command = command_of(sys.stdin.read())
+        payload = sys.stdin.read()
+        rc = dispatch_tool(tool_of(payload))
+        if rc != 0:
+            return rc
+        command = command_of(payload)
         if not command:
             return 0
         return dispatch(command)

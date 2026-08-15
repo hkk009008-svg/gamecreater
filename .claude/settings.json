@@ -1,9 +1,22 @@
 {
   "$comment": "Two mechanized rules, both paid for: pushes are preflighted for PRIVATE visibility (preflight_push.py), and engine launches are blocked while an editor is open (check_editor_clear.py). Invoked via run_pretooluse.sh so the interpreter is python3/python/py and a blocking exit 2 cannot fall through an || chain. Everything else stays advisory in skills/memory - only rules with a named observed failure get mechanized.",
+  "$matcher_note": "Monitor was added 2026-08-14 after a measured bypass: 'git -C C:/nonexistent-repo-xyz push origin main' was BLOCKED through Bash and ACCEPTED through Monitor, because the matcher named only Bash|PowerShell while Monitor runs shell commands too. Any future tool that executes a shell string must be added here - the matcher is an allowlist of names, not a description of behaviour, so a new command-running tool arrives unguarded by default. Known remaining gap, deliberately not closed here: MCP tool calls carry no tool_input.command, so the dispatcher sees an empty string and allows; installing any git- or engine-capable MCP server would make CLAUDE.md's push rule false.",
+  "$sessionstart_note": "CLAUDE.md asks the agent to perform a three-step orientation by hand at every session start. That depends on remembering, and the dependency has failed measurably: GAME.local.md:33 already recorded that this editor's UI is Korean, and a session still wrote an English display-string matcher and lost a boot to it. session_start.py replaces recall with measurement - it runs in ~180ms, needs no network, always exits 0, and reports only what it read. SessionStart cannot block, so a failure here costs orientation, never the session.",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/scripts/session_start.py\""
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell",
+        "matcher": "Bash|PowerShell|Monitor|mcp__.*",
         "hooks": [
           {
             "type": "command",

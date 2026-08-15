@@ -9,3 +9,6 @@ public-grant.txt
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# machine-local: which engine mode is active (scripts/mcp_session.py)
+.mcp-session.local
