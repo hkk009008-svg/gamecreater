@@ -114,6 +114,24 @@ gets no mechanical guard — these bind by discipline alone.**
 are hygiene. Task "repair 6 drifted skill citations" is gated on the
 user-invoked distill ritual — leave it.
 
+**Standing situation — untracked content edits (know this, don't "fix"
+it unprompted):** the applied hair grade lives in
+`Content/Kurogane/Experiments/Hair/UpdoMessyBun/.../Materials/MI_Hair.uasset`,
+which is OUTSIDE the Kurogane repo's allowlist — git does not carry it.
+Its protection is the backup + re-apply pair
+(`Experiments/Combat/hair_backup1/` with sha256, re-run
+`apply_hair_color_v1.py`), recorded on NOW.md's re-apply list alongside
+the DT_Equipment grip edit. This is the repo's deliberate design: the
+allowlist tracks the means of production (scripts, docs, sha manifests),
+not regenerable content. If the user ever asks to bring hair content
+under version control, do it ONLY via the `pin-a-content-boundary`
+skill: the allowlist is `/*`-inverted, so a bare leaf `!path/` re-include
+silently stages nothing (every parent level needs its own un-exclude +
+re-exclude line, proven with `git check-ignore -v`), and the 62.5 MB
+groom asset must not be committed before `.gitattributes` LFS routing
+covers it — a raw blob in history has no in-place fix. Boundary changes
+are a user decision, never a side effect.
+
 ## 5. How work is done here
 
 - **Scripts live in** `D:\Unreal\Art\Characters\Kurogane\Scripts\LookDevV1\`
