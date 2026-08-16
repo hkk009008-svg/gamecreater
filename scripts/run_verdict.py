@@ -46,6 +46,9 @@ OUTPUT is one of:
                          does not self-report failure
     MISSING              at least one declared artifact is absent or 0 bytes
     PRESENT_BUT_FAILING  the artifact landed and says it failed
+    PRESENT_BUT_STALE    the artifact predates the run or is byte-for-byte,
+                         size-for-size, and timestamp-for-timestamp unchanged
+                         from the pre-run baseline
     PRESENT_BUT_IDENTICAL  several artifacts were declared and they are
                          byte-identical -- the run varied nothing
     UNDECLARED           the caller named no artifact -- this run gates on
@@ -63,6 +66,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, field, asdict
@@ -108,6 +112,11 @@ RHI_RE = re.compile(
 # over black frames, over a bald character, and over two renders that changed
 # exactly 0 px. It is evidence about the script, not about the engine.
 SENTINEL_RE = re.compile(r"\b[A-Z][A-Z0-9_]{3,}=(PASS|COMPLETE|OK)\b")
+
+# A clean engine shutdown does not make a gameplay run healthy. The v3
+# Downed probe closed normally while carrying 300 of these. Keep this narrow:
+# generic words such as "Error" also occur in expected negative controls.
+BLUEPRINT_RUNTIME_ERROR_RE = re.compile(r"Blueprint Runtime Error", re.IGNORECASE)
 
 TERMINAL_KILLS = {"stall": "KILLED_STALL", "timeout": "KILLED_TIMEOUT"}
 
@@ -230,7 +239,7 @@ def classify_log(
 FAILING_STATUS = {"fail", "failed", "failure", "error", "inconclusive"}
 
 
-def self_reported_failure(path: Path) -> str | None:
+def _self_reported_failure_bytes(path: Path, raw: bytes) -> str | None:
     """Read a JSON artifact's own verdict. Returns a reason, or None.
 
     Deliberately narrow: only an explicit `status` in FAILING_STATUS, a
@@ -242,8 +251,8 @@ def self_reported_failure(path: Path) -> str | None:
     if path.suffix.lower() != ".json":
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except (OSError, ValueError) as e:
+        data = json.loads(raw.decode("utf-8", errors="replace"))
+    except ValueError as e:
         return f"declared a .json artifact that does not parse: {e}"
     if not isinstance(data, dict):
         return None
@@ -257,6 +266,16 @@ def self_reported_failure(path: Path) -> str | None:
     if isinstance(errs, (list, tuple)) and len(errs):
         return f"report carries {len(errs)} entry/entries in 'errors'"
     return None
+
+
+def self_reported_failure(path: Path) -> str | None:
+    """Compatibility wrapper for callers checking one artifact directly."""
+    snapshot, raw = _read_artifact(path)
+    if raw is None:
+        error = snapshot.get("error") or "artifact is not a readable file"
+        return (f"declared a .json artifact that does not parse: {error}"
+                if path.suffix.lower() == ".json" else None)
+    return _self_reported_failure_bytes(path, raw)
 
 
 def identical_groups(artifacts: list[Path]) -> list[list[Path]]:
@@ -283,30 +302,99 @@ def identical_groups(artifacts: list[Path]) -> list[list[Path]]:
     return [g for g in by_hash.values() if len(g) > 1]
 
 
-def check_artifacts(artifacts: list[Path]) -> tuple[str, list[str], list[dict]]:
+def artifact_snapshot(path: Path) -> dict:
+    """Return the filesystem identity used to bind an output to one run.
+
+    Registry existence is deliberately irrelevant here. The producer and
+    consumer ultimately exchange filesystem bytes, so this asks the
+    filesystem and records enough state to distinguish a pre-run file from a
+    newly written one.
+    """
+    return _read_artifact(path)[0]
+
+
+def _read_artifact(path: Path) -> tuple[dict, bytes | None]:
+    """Read artifact bytes once and describe those exact bytes."""
+    key = str(path.resolve())
+    try:
+        with path.open("rb") as f:
+            raw = f.read()
+            stat = os.fstat(f.fileno())
+        return ({
+            "path": key,
+            "exists": True,
+            "is_file": True,
+            "bytes": len(raw),
+            "mtime_ns": stat.st_mtime_ns,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }, raw)
+    except IsADirectoryError:
+        try:
+            mtime_ns = path.stat().st_mtime_ns
+        except OSError:
+            mtime_ns = None
+        return ({"path": key, "exists": True, "is_file": False,
+                 "bytes": None, "mtime_ns": mtime_ns, "sha256": None}, None)
+    except FileNotFoundError:
+        return ({"path": key, "exists": False, "is_file": False,
+                 "bytes": None, "mtime_ns": None, "sha256": None}, None)
+    except OSError as e:
+        return ({"path": key, "exists": None, "is_file": None,
+                 "bytes": None, "mtime_ns": None, "sha256": None,
+                 "error": str(e)}, None)
+
+
+def check_artifacts(
+    artifacts: list[Path],
+    *,
+    baselines: dict[str, dict] | None = None,
+    not_before_ns: int | None = None,
+) -> tuple[str, list[str], list[dict]]:
     if not artifacts:
         return "UNDECLARED", [
             "no artifact declared; this run gates on nothing. "
             "Exit code 0 with no artifact is not a pass."
         ], []
-    detail, missing, failing = [], [], []
+    detail, missing, failing, stale = [], [], [], []
+    baselines = baselines or {}
     for a in artifacts:
-        try:
-            size = a.stat().st_size if a.exists() else None
-        except OSError as e:                       # permissions, bad path
-            size = None
-            detail.append({"path": str(a), "bytes": None, "error": str(e)})
-            missing.append(f"{a} (stat failed: {e})")
-            continue
-        entry = {"path": str(a), "bytes": size}
+        current, raw = _read_artifact(a)
+        size = current.get("bytes")
+        entry = dict(current)
         detail.append(entry)
-        if size is None:
+        if current.get("exists") is None:
+            missing.append(f"{a} (stat failed: {current.get('error')})")
+            continue
+        if not current.get("exists") or not current.get("is_file"):
             missing.append(f"{a} (absent)")
             continue
         if size == 0:
             missing.append(f"{a} (zero bytes)")
             continue
-        why = self_reported_failure(a)
+
+        key = str(a.resolve())
+        before = baselines.get(key)
+        if before is not None:
+            entry["before"] = before
+            comparable = ("exists", "is_file", "bytes", "mtime_ns", "sha256")
+            if all(before.get(k) == current.get(k) for k in comparable):
+                stale.append(
+                    f"{a} is unchanged from its pre-run filesystem baseline")
+        # A trusted absent-before -> present-after transition is stronger
+        # than comparing two clocks. On NTFS a just-written file's mtime can
+        # precede time.time_ns() by a fraction of a millisecond, which made a
+        # valid fast producer look stale. Keep the timestamp gate for callers
+        # that did not take an absent baseline.
+        absent_before = before is not None and before.get("exists") is False
+        if (not absent_before
+                and not_before_ns is not None
+                and current.get("mtime_ns") is not None
+                and current["mtime_ns"] < not_before_ns):
+            stale.append(
+                f"{a} mtime {current['mtime_ns']} predates run start "
+                f"{not_before_ns}")
+
+        why = _self_reported_failure_bytes(a, raw) if raw is not None else None
         if why:
             entry["self_reported_failure"] = why
             failing.append(f"{a}: {why}")
@@ -318,6 +406,11 @@ def check_artifacts(artifacts: list[Path]) -> tuple[str, list[str], list[dict]]:
             f"artifact landed but says it FAILED -- {f}. 'The file exists' is "
             f"a weaker claim than 'the run produced a result'." for f in failing
         ], detail
+    if stale:
+        return "PRESENT_BUT_STALE", [
+            f"artifact exists but is not bound to this run -- {s}. A stale "
+            f"file is not output from the process just classified." for s in stale
+        ], detail
 
     # A sweep that did not sweep. Measured 2026-08-14: a 7-variant tone sweep
     # wrote seven BYTE-IDENTICAL files and scored PRESENT, because existence,
@@ -325,7 +418,12 @@ def check_artifacts(artifacts: list[Path]) -> tuple[str, list[str], list[dict]]:
     # corpus already records the ancestor of this failure -- "two full renders
     # that changed exactly 0 px, twice". Declaring N artifacts asserts N
     # distinct results; if they are identical, say so.
-    dupes = identical_groups(artifacts)
+    by_hash: dict[str, list[Path]] = {}
+    for entry in detail:
+        digest = entry.get("sha256")
+        if digest:
+            by_hash.setdefault(digest, []).append(Path(entry["path"]))
+    dupes = [group for group in by_hash.values() if len(group) > 1]
     if dupes:
         biggest = max(dupes, key=len)
         return "PRESENT_BUT_IDENTICAL", [
@@ -340,13 +438,25 @@ def check_artifacts(artifacts: list[Path]) -> tuple[str, list[str], list[dict]]:
                        f"non-empty, distinct, and not self-reporting failure"], detail
 
 
-def read_log(path: Path) -> tuple[str | None, int]:
+def read_log(path: Path) -> tuple[str | None, dict]:
     """Decode permissively. The corpus contains cp949 Korean text inside
-    otherwise-UTF-8 logs; a decode error must not become a verdict."""
+    otherwise-UTF-8 logs; a decode error must not become a verdict. Return
+    the hash of the exact bytes classified so the sidecar cannot later hash
+    a different version and pretend the two were one observation."""
     if not path.is_file():
-        return None, 0
+        return None, {"path": str(path.resolve()), "bytes": 0,
+                      "mtime_ns": None, "sha256": None}
     raw = path.read_bytes()
-    return raw.decode("utf-8", "replace"), len(raw)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except OSError:
+        mtime_ns = None
+    return raw.decode("utf-8", "replace"), {
+        "path": str(path.resolve()),
+        "bytes": len(raw),
+        "mtime_ns": mtime_ns,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
 
 
 def verdict_for(
@@ -357,9 +467,13 @@ def verdict_for(
     process_alive: bool = False,
     killed: str | None = None,
     expect_rhi: str | None = None,
+    artifact_baselines: dict[str, dict] | None = None,
+    artifact_not_before_ns: int | None = None,
+    max_blueprint_runtime_errors: int = 0,
 ) -> Verdict:
     artifacts = artifacts or []
-    text, size = read_log(log_path)
+    text, log_snapshot = read_log(log_path)
+    size = log_snapshot["bytes"]
 
     rhi = None
     environment_ok = True
@@ -371,6 +485,15 @@ def verdict_for(
             text, size_bytes=size, process_alive=process_alive, killed=killed)
         sentinel = bool(SENTINEL_RE.search(text))
         rhi = extract_rhi(text)
+
+    blueprint_runtime_errors = (
+        len(BLUEPRINT_RUNTIME_ERROR_RE.findall(text)) if text is not None else 0)
+    if blueprint_runtime_errors > max_blueprint_runtime_errors:
+        environment_ok = False
+        reasons.append(
+            f"{blueprint_runtime_errors} Blueprint Runtime Error marker(s) "
+            f"exceed allowed maximum {max_blueprint_runtime_errors}. A clean "
+            f"engine close does not make broken gameplay citable.")
 
     if expect_rhi:
         # Positive assertion: the RHI you expected is PRESENT. Asserting only
@@ -388,7 +511,9 @@ def verdict_for(
         else:
             reasons.append(f"RHI {rhi!r} confirmed present in the log")
 
-    output, out_reasons, detail = check_artifacts(artifacts)
+    output, out_reasons, detail = check_artifacts(
+        artifacts, baselines=artifact_baselines,
+        not_before_ns=artifact_not_before_ns)
     reasons += out_reasons
 
     contradiction = sentinel and execution != "COMPLETE"
@@ -418,12 +543,15 @@ def verdict_for(
         reasons=reasons,
         evidence={
             "log": str(log_path),
+            "log_snapshot": log_snapshot,
             "log_bytes": size,
             "exit_code": exit_code,
             "killed": killed,
             "process_alive": process_alive,
             "rhi": rhi,
             "rhi_expected": expect_rhi,
+            "blueprint_runtime_errors": blueprint_runtime_errors,
+            "max_blueprint_runtime_errors": max_blueprint_runtime_errors,
             "artifacts": detail,
         },
     )
@@ -455,11 +583,15 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--killed", choices=sorted(TERMINAL_KILLS), default=None)
     ap.add_argument("--expect-rhi", default=None,
                     help="assert this RHI initialised, e.g. D3D12")
+    ap.add_argument("--max-blueprint-runtime-errors", type=int, default=0,
+                    help="maximum explicit Blueprint Runtime Error markers "
+                         "allowed before the run becomes non-citable")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
 
     v = verdict_for(a.log, a.artifact, exit_code=a.exit_code, killed=a.killed,
-                    expect_rhi=a.expect_rhi)
+                    expect_rhi=a.expect_rhi,
+                    max_blueprint_runtime_errors=a.max_blueprint_runtime_errors)
     print(json.dumps(v.as_dict(), indent=2) if a.json else render(v))
     # 0 citable, 1 ran-but-not-citable, 2 did not run cleanly.
     return 0 if v.citable else (1 if v.execution == "COMPLETE" else 2)

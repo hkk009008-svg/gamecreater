@@ -14,6 +14,7 @@ would pass a one-sided suite and be useless.
 """
 
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -299,6 +300,77 @@ class TestOutputVerdictIsIndependent(unittest.TestCase):
             v = rv.verdict_for(log, [art])
             self.assertEqual((v.execution, v.output), ("CRASHED", "PRESENT"))
             self.assertFalse(v.citable)
+
+    def test_preexisting_unchanged_artifact_is_stale(self):
+        """Known-positive for the freshness detector: yesterday's report
+        must not become today's result just because today's engine closed."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "old.json"
+            art.write_text('{"status":"PASS"}', encoding="utf-8")
+            before = rv.artifact_snapshot(art)
+            v = rv.verdict_for(
+                self._clean_log(tmp), [art],
+                artifact_baselines={str(art.resolve()): before})
+            self.assertEqual(v.output, "PRESENT_BUT_STALE")
+            self.assertFalse(v.citable)
+
+    def test_rewritten_artifact_clears_the_baseline_gate(self):
+        """Quiet direction: freshness cannot become a blanket refusal."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "report.json"
+            art.write_text('{"status":"PASS"}', encoding="utf-8")
+            before = rv.artifact_snapshot(art)
+            newer = before["mtime_ns"] + 1_000_000_000
+            os.utime(art, ns=(newer, newer))
+            v = rv.verdict_for(
+                self._clean_log(tmp), [art],
+                artifact_baselines={str(art.resolve()): before})
+            self.assertEqual(v.output, "PRESENT")
+            self.assertTrue(v.citable)
+
+    def test_artifact_older_than_run_start_is_stale(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "old.json"
+            art.write_text('{"status":"PASS"}', encoding="utf-8")
+            start_ns = art.stat().st_mtime_ns + 1_000_000_000
+            v = rv.verdict_for(
+                self._clean_log(tmp), [art],
+                artifact_not_before_ns=start_ns)
+            self.assertEqual(v.output, "PRESENT_BUT_STALE")
+
+
+class TestBlueprintRuntimeIntegrity(unittest.TestCase):
+    def _case(self, tmp, count, allowed=0):
+        log = Path(tmp) / "run.log"
+        body = "".join(
+            "LogBlueprintUserMessages: Error: Blueprint Runtime Error: "
+            "Accessed None\n" for _ in range(count))
+        log.write_text(engine_log(body, CLEAN_TAIL), encoding="utf-8")
+        art = Path(tmp) / "report.json"
+        art.write_text('{"status":"PASS"}', encoding="utf-8")
+        return rv.verdict_for(
+            log, [art], max_blueprint_runtime_errors=allowed)
+
+    def test_runtime_error_makes_clean_close_non_citable(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            v = self._case(tmp, 2)
+            self.assertEqual(v.execution, "COMPLETE")
+            self.assertEqual(v.output, "PRESENT")
+            self.assertFalse(v.environment_ok)
+            self.assertFalse(v.citable)
+            self.assertEqual(v.evidence["blueprint_runtime_errors"], 2)
+
+    def test_explicit_budget_is_honoured(self):
+        """Quiet direction for a deliberately noisy diagnostic run."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            v = self._case(tmp, 1, allowed=1)
+            self.assertTrue(v.environment_ok)
+            self.assertTrue(v.citable)
 
 
 class TestRhiIsAssertedPositively(unittest.TestCase):

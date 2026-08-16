@@ -549,3 +549,86 @@ The next sweep starts below this line.
   code path runs, zero reimplementation. Generally: when a scaffolder is
   interactive-only, look for the prompt library's injection hook before
   reimplementing the scaffold or bothering the user with a terminal detour.
+
+- 2026-08-16 — BROAD `unittest discover` IS A WRITE PATH WHEN `test_*.py`
+  MODULES EXECUTE AT IMPORT TIME. A read-only orientation ran discovery over
+  the WitnessTree scripts after checking only that they did not import
+  `unreal`; importing two modules rewrote the tracked evidence files
+  `game/kurogane/logs/kga10_capture_can_move_20260810.json` and
+  `kga10_cvars_20260810.json`. The bytes happened to remain identical (Git
+  stayed clean), but both mtimes changed, so the run still overwrote evidence
+  without intending to. A test-shaped filename and engine-free imports do not
+  establish import safety. Before discovery in an artifact-bearing repo,
+  inspect candidate modules for top-level execution and output paths, or run
+  them only against redirected/disposable outputs. `[candidate → generalize]`
+- 2026-08-17 — A DECLARED ARTIFACT NEEDS A PRE-RUN IDENTITY, NOT JUST A
+  POST-RUN EXISTENCE CHECK. A one-day-old JSON with `status=PASS` plus a new
+  clean-close log scored OUTPUT=PRESENT and citable because the verdict never
+  asked whether the process produced that file. The supervisor now refuses
+  an already-existing declared output and the classifier can compare
+  filesystem existence, size, mtime, and SHA-256 against a pre-run baseline
+  plus run-start time. The known-positive stale fixture fails; a deliberately
+  rewritten artifact clears the gate. Fresh paths also enforce the standing
+  no-overwrite rule instead of merely improving inference.
+- 2026-08-17 — CLEAN ENGINE CLOSE DOES NOT ACQUIT BLUEPRINT RUNTIME ERRORS.
+  One gameplay probe closed normally, wrote a PASS report, and carried 300
+  explicit `Blueprint Runtime Error` markers. The supervisor formerly called
+  it citable. Runtime-error count is now an independent environment gate with
+  a default budget of zero and an explicit override for deliberately noisy
+  diagnostics; tests pin both the failing and allowed directions. This is
+  deliberately narrower than generic `Error:` because expected negative
+  controls and editor-only plugin startup failures need separate scopes.
+- 2026-08-17 — FILE MTIME AND `time.time_ns()` ARE NOT ONE ORDERED CLOCK.
+  A mocked producer created its output immediately after the recorded run
+  start, yet NTFS reported the file mtime about 0.27 ms earlier and the first
+  freshness gate falsely called it stale. When the supervisor has already
+  proved a declared path absent immediately before launch, absent→present is
+  the stronger binding and the cross-clock comparison must be skipped. Keep
+  the timestamp gate only for callers without that baseline, and pin the fast
+  producer as the quiet-direction control.
+- 2026-08-17 — HASH THE HARNESS BEFORE THE PROCESS, AND BIND A VERDICT TO THE
+  BYTES IT READ. The first sidecar implementation hashed the script after a
+  potentially 30-minute run, so an edit made while Unreal was alive could be
+  recorded as the code Unreal had loaded. It also classified artifact bytes A
+  and then re-read hash B, allowing a sidecar to say citable=true beside a
+  JSON that now said FAIL. The corrected route fingerprints supervisor,
+  classifier, and target before launch; reads each artifact once for hash and
+  self-report; carries that snapshot into the sidecar; and makes any observed
+  post-classification drift non-citable.
+- 2026-08-17 — ATOMIC REPLACE IS STILL AN OVERWRITE. A fresh sidecar name can
+  collide after preflight; `os.replace` would silently destroy the other run's
+  complete evidence. Publish a fully fsynced same-directory temporary file by
+  an atomic hard link, which fails if the destination appeared, then unlink the
+  temporary name. The collision control must preserve the original bytes.
+- 2026-08-17 — AN ENGINE MODE FLAG AND ITS SCRIPT ENTRY ARE ONE CONTRACT.
+  Passing `-game` as an extra flag while the builder still appended editor-only
+  `-ExecutePythonScript` created a command that could boot yet never run its
+  probe. Reject `-game` unless the caller chose the real-game route, reject
+  competing caller-supplied Python entries, and refuse whitespace script paths
+  until Unreal's inner `py` console parser—not merely Windows argv quoting—has
+  a positive engine control.
+- 2026-08-17 — A DASH-PREFIXED CHILD-PROCESS FLAG NEEDS AN EXPLICIT CLI
+  TRANSPORT. The supervisor documented a trailing positional for Unreal flags,
+  but argparse rejected both bare `-nullrhi` and the advertised
+  `-- -nullrhi`; the positional remained empty and a valid probe could not be
+  launched through the public interface. Add a repeatable option whose value
+  is carried with the option token (`--extra-flag=-nullrhi`), merge it with any
+  legacy plain positionals, and route the combined list through the existing
+  conflict checks. Pin the exact dash-prefixed parse, not merely the downstream
+  command builder, because a builder test cannot prove users can reach it.
+- 2026-08-17 — A PROJECT PREFIX IS NOT A SECRET BOUNDARY. Capturing every
+  `KG_*`/`KUROGANE_*` environment value made current runs reproducible but
+  would also serialize a future `KG_TOKEN` or `KUROGANE_API_KEY` into a
+  shareable sidecar. Derive the recorded allowlist from project-variable names
+  literally referenced by the target script, ignore unrelated ambient names,
+  and redact credential-shaped keys even when referenced. Test all three
+  directions: a real knob is preserved, an ambient project-prefixed value is
+  absent, and a referenced secret name never carries its value.
+- 2026-08-17 — A HASH-BOUND LOG CANNOT ENTER GIT THROUGH TEXT NORMALIZATION.
+  New Unreal logs matched their sidecars on disk, but `git add` converted CRLF
+  to LF, so four staged blobs no longer matched the hashes that authenticated
+  them. Mark immutable engine logs `binary` (therefore `-text` and `-diff`) at
+  their evidence directory, unstage and re-add any blobs staged before the
+  attribute existed, then hash `git show :path` itself against the sidecar.
+  Working-copy equality is not a portability proof; the staged blob is what a
+  commit actually preserves.

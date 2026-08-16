@@ -9,6 +9,7 @@ does not.
 import io
 import json
 import subprocess
+import struct
 import sys
 import tempfile
 import time
@@ -36,6 +37,15 @@ def fake_project(tmp: Path) -> tuple[Path, Path, Path]:
 
 
 class TestCommandBuilder(unittest.TestCase):
+    def test_cli_accepts_dash_prefixed_engine_flag(self):
+        """The old trailing positional rejected exactly the values it was
+        meant to carry: argparse left ``-- -nullrhi`` unrecognized."""
+        parsed = er.build_parser().parse_args([
+            "headless", "probe.py", "--extra-flag=-nullrhi",
+            "--extra-flag=-NoSound",
+        ])
+        self.assertEqual(parsed.extra_flag, ["-nullrhi", "-NoSound"])
+
     def test_refuses_nullrhi_when_the_run_needs_pixels(self):
         """A pre-flight refusal beats a post-hoc log scan: -nullrhi means no
         RHI at all, so the run cannot produce one pixel."""
@@ -67,6 +77,58 @@ class TestCommandBuilder(unittest.TestCase):
             cmd = er.build_command(e, u, s, Path(t) / "r.log", needs_rhi=True,
                                    extra=["-RenderOffscreen"])
             self.assertEqual(cmd.count("-RenderOffscreen"), 1)
+
+    def test_real_game_uses_exec_cmds_not_editor_only_route(self):
+        """UE rejects -ExecutePythonScript under -game. The project-proven
+        route is one ExecCmds argv value under the current no-space root."""
+        with tempfile.TemporaryDirectory() as t:
+            e, u, s = fake_project(Path(t))
+            cmd = er.build_command(e, u, s, Path(t) / "r.log",
+                                   needs_rhi=False, real_game=True)
+            self.assertIn("-game", cmd)
+            self.assertFalse(any(x.startswith("-ExecutePythonScript=")
+                                 for x in cmd))
+            exec_cmds = [x for x in cmd if x.startswith("-ExecCmds=")]
+            self.assertEqual(len(exec_cmds), 1)
+            self.assertEqual(exec_cmds[0], f"-ExecCmds=py {s.resolve()}")
+            rendered = subprocess.list2cmdline(cmd)
+            self.assertIn(f'"-ExecCmds=py {s.resolve()}"', rendered)
+            self.assertNotIn(f'\\"{s.resolve()}\\"', rendered)
+
+    def test_game_extra_without_real_game_is_refused(self):
+        with tempfile.TemporaryDirectory() as t:
+            e, u, s = fake_project(Path(t))
+            with self.assertRaises(er.IntentError) as cm:
+                er.build_command(e, u, s, Path(t) / "r.log",
+                                 needs_rhi=False, extra=["-game"])
+            self.assertIn("requires --real-game", str(cm.exception))
+
+    def test_competing_python_entry_is_refused(self):
+        with tempfile.TemporaryDirectory() as t:
+            e, u, s = fake_project(Path(t))
+            with self.assertRaises(er.IntentError) as cm:
+                er.build_command(e, u, s, Path(t) / "r.log",
+                                 needs_rhi=False,
+                                 extra=["-ExecCmds=py other.py"])
+            self.assertIn("competing Python entry", str(cm.exception))
+
+    def test_real_game_whitespace_script_path_is_refused(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t) / "path with space"
+            e, u, s = fake_project(root)
+            with self.assertRaises(er.IntentError) as cm:
+                er.build_command(e, u, s, root / "r.log",
+                                 needs_rhi=False, real_game=True)
+            self.assertIn("unproven", str(cm.exception))
+
+    def test_editor_route_remains_execute_python_script(self):
+        with tempfile.TemporaryDirectory() as t:
+            e, u, s = fake_project(Path(t))
+            cmd = er.build_command(e, u, s, Path(t) / "r.log",
+                                   needs_rhi=False)
+            self.assertTrue(any(x.startswith("-ExecutePythonScript=")
+                                for x in cmd))
+            self.assertFalse(any(x.startswith("-ExecCmds=") for x in cmd))
 
     def test_abslog_is_literal_absolute_and_after_the_uproject(self):
         """A shell-interpolated -abslog costs the whole run silently: the
@@ -264,6 +326,166 @@ class TestModeRouting(unittest.TestCase):
             self.assertEqual(rc, 3)
             self.assertIn("refusing to overwrite", out.getvalue() + err.getvalue())
             self.assertEqual(log.read_text(encoding="utf-8"), "precious evidence")
+
+    def test_existing_declared_artifact_is_never_overwritten(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            e, u, s = fake_project(tmp)
+            artifact = tmp / "precious.json"
+            artifact.write_text('{"status":"PASS"}', encoding="utf-8")
+            a = er.build_parser().parse_args(
+                ["headless", str(s), "--engine", str(e), "--uproject", str(u),
+                 "--out-dir", str(tmp / "runs"), "--artifact", str(artifact),
+                 "--dry-run"])
+            with patch.object(er, "MARKER", tmp / "absent"), \
+                 patch.object(er.cec, "list_processes", return_value=["explorer.exe"]):
+                out, err = io.StringIO(), io.StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = er.cmd_headless(a)
+            self.assertEqual(rc, 3)
+            self.assertIn("declared artifact", out.getvalue() + err.getvalue())
+            self.assertEqual(artifact.read_text(encoding="utf-8"),
+                             '{"status":"PASS"}')
+
+
+class TestSidecarProvenance(unittest.TestCase):
+    def test_harness_hash_changes_when_a_member_changes(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            a = root / "a.py"; a.write_text("x = 1\n", encoding="utf-8")
+            b = root / "b.py"; b.write_text("y = 2\n", encoding="utf-8")
+            first = er.harness_fingerprint([a, b])
+            b.write_text("y = 3\n", encoding="utf-8")
+            second = er.harness_fingerprint([a, b])
+            self.assertNotEqual(first["sha256"], second["sha256"])
+            self.assertEqual(len(first["files"]), 2)
+
+    def test_png_size_is_read_from_ihdr(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t) / "plate.png"
+            p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR"
+                          + struct.pack(">II", 1920, 1080))
+            self.assertEqual(er.png_capture_size(p), [1920, 1080])
+
+    def test_png_signature_without_ihdr_is_not_a_capture_size(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t) / "fake.png"
+            p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dNOPE"
+                          + struct.pack(">II", 1920, 1080))
+            self.assertIsNone(er.png_capture_size(p))
+
+    def test_project_environment_is_script_scoped_and_redacts_secrets(self):
+        with tempfile.TemporaryDirectory() as td:
+            script = Path(td) / "probe.py"
+            script.write_text(
+                "TONE = 'KUROGANE_FACE_TONE'\n"
+                "TOKEN = 'KG_TOKEN'\n",
+                encoding="utf-8")
+            with patch.dict(er.os.environ, {
+                "KUROGANE_FACE_TONE": "0.25",
+                "KG_TOKEN": "do-not-record-this",
+                "KUROGANE_UNRELATED": "ambient-value",
+            }, clear=False):
+                captured = er.project_environment(script)
+            self.assertEqual(captured["KUROGANE_FACE_TONE"], "0.25")
+            self.assertEqual(captured["KG_TOKEN"], "<redacted>")
+            self.assertNotIn("KUROGANE_UNRELATED", captured)
+
+    def test_capture_bucket_reads_selected_adapter(self):
+        with tempfile.TemporaryDirectory() as t:
+            log = Path(t) / "run.log"
+            log.write_text(
+                "LogInit: Engine Version: 5.8.1-test\n"
+                "LogInit: OS: Windows 11 (25H2), CPU: Example, GPU: Intel\n"
+                "LogRHI: Using Default RHI: D3D12\n"
+                "LogRHI: Using Highest Feature Level of D3D12: SM6\n"
+                "LogRHI:             Name: NVIDIA Test GPU\n"
+                "LogRHI:   Driver Version: 610.88\n", encoding="utf-8")
+            bucket = er.capture_bucket(log, enabled=True, extra_flags=[])
+            self.assertTrue(bucket["complete"])
+            self.assertEqual(bucket["gpu"], "NVIDIA Test GPU")
+            self.assertEqual(bucket["rhi"], "D3D12")
+            self.assertEqual(bucket["shader_model"], "SM6")
+            self.assertIsNotNone(bucket["key"])
+
+    def test_atomic_sidecar_has_no_temporary_remnant(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t) / "run.sidecar.json"
+            er.atomic_write_json(p, {"answer": 42})
+            self.assertEqual(json.loads(p.read_text(encoding="utf-8")),
+                             {"answer": 42})
+            self.assertEqual(list(Path(t).glob("*.tmp")), [])
+
+    def test_atomic_sidecar_never_replaces_a_collision(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t) / "run.sidecar.json"
+            p.write_text('{"precious": true}\n', encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                er.atomic_write_json(p, {"replacement": True})
+            self.assertEqual(json.loads(p.read_text(encoding="utf-8")),
+                             {"precious": True})
+            self.assertEqual(list(Path(t).glob("*.tmp")), [])
+
+
+class TestHeadlessEvidenceBinding(unittest.TestCase):
+    CLEAN_LOG = (
+        "LogInit: Engine Version: 5.8.1-test\n"
+        "LogInit: OS: Windows 11, CPU: Example, GPU: Example\n"
+        "LogPython: probe ran\n"
+        "LogRHI: Render tracing channels set: Submission\n"
+        "LogTemp: finished\n"
+        "LogExit: Log file closed\n")
+
+    def _args(self, root: Path, artifact: Path):
+        e, u, s = fake_project(root)
+        return er.build_parser().parse_args([
+            "headless", str(s), "--engine", str(e), "--uproject", str(u),
+            "--out-dir", str(root / "runs"), "--artifact", str(artifact)])
+
+    def test_absent_then_fast_present_is_not_false_stale(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            artifact = root / "result.json"
+            args = self._args(root, artifact)
+
+            def produce(_cmd, log, **_kwargs):
+                artifact.write_text('{"status":"PASS"}', encoding="utf-8")
+                log.write_text(self.CLEAN_LOG, encoding="utf-8")
+                return 0, None, 0.001
+
+            with patch.object(er, "MARKER", root / "absent"), \
+                 patch.object(er.cec, "list_processes", return_value=[]), \
+                 patch.object(er, "supervise", side_effect=produce):
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    rc = er.cmd_headless(args)
+            self.assertEqual(rc, 0)
+            sidecar = next((root / "runs").glob("*.sidecar.json"))
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertEqual(data["verdict"]["output"], "PRESENT")
+            self.assertTrue(data["verdict"]["citable"])
+            self.assertEqual(data["artifacts"][0]["sha256"],
+                             er.sha256_full(artifact))
+
+    def test_artifact_arriving_during_provenance_is_refused(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            artifact = root / "result.json"
+            args = self._args(root, artifact)
+
+            def race(_paths):
+                artifact.write_text('{"status":"FAIL"}', encoding="utf-8")
+                return {"sha256": "x", "changed_line_count": 0, "files": []}
+
+            with patch.object(er, "MARKER", root / "absent"), \
+                 patch.object(er.cec, "list_processes", return_value=[]), \
+                 patch.object(er, "harness_fingerprint", side_effect=race), \
+                 patch.object(er, "supervise") as supervise:
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    rc = er.cmd_headless(args)
+            self.assertEqual(rc, 3)
+            supervise.assert_not_called()
+            self.assertEqual(json.loads(artifact.read_text(encoding="utf-8")),
+                             {"status": "FAIL"})
 
 
 class TestMcpEndpoint(unittest.TestCase):
