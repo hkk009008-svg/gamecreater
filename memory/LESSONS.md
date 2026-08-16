@@ -538,3 +538,14 @@ The next sweep starts below this line.
   Not one asked "is the subject in frame, the right way up, and lit". A human
   glance answered in one second what four automated checks could not, because
   they were testing the pipeline and the defect was in the picture.
+- 2026-08-16 — PIPING ANSWERS INTO A `prompts`-BASED NODE CLI MASHES THEM ALL
+  INTO THE FIRST FIELD. The Ableton extension creator read piped stdin as raw
+  keystrokes: four newline-separated answers concatenated into one garbled
+  "Extension name", then the process died on an unsettled top-level await
+  with exit 0 and nothing created. The working route: a 12-line driver that
+  imports the same `prompts` module, calls `prompts.inject([...])` with the
+  answers in prompt order (conditional type:null prompts consume nothing),
+  sets `process.argv`, then dynamic-imports the real bin script — the REAL
+  code path runs, zero reimplementation. Generally: when a scaffolder is
+  interactive-only, look for the prompt library's injection hook before
+  reimplementing the scaffold or bothering the user with a terminal detour.
