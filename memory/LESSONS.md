@@ -632,3 +632,21 @@ The next sweep starts below this line.
   attribute existed, then hash `git show :path` itself against the sidecar.
   Working-copy equality is not a portability proof; the staged blob is what a
   commit actually preserves.
+- 2026-08-17 — `EDITORASSETLIBRARY` IS NOT A RUNTIME ASSET API JUST BECAUSE
+  PYTHON EXPOSES IT UNDER `-game`. A real `UnrealEditor-Cmd -game` probe called
+  `EditorAssetLibrary.load_asset` from a Slate callback and crashed with a
+  near-null AV; the native stack was Engine → EditorScriptingUtilities →
+  CoreUObject → Python. UE's wrapper dereferences `GEditor` to obtain an editor
+  subsystem without a null guard, while EngineMode Game has no valid editor
+  context. Real-entry probes must use runtime-safe load/reflection APIs or omit
+  the optional observation. A clean command line and an editor executable do
+  not make editor-only libraries safe in product mode.
+- 2026-08-17 — `SET_EDITOR_PROPERTY` ON A LIVE ACTOR IS NOT A HARMLESS
+  RUNTIME MARKER. Writing Actor Tags issued editor change notifications,
+  reran construction scripts, tore down/recreated constructed components, and
+  made inventory/equipment initialization attempt forbidden SpawnActor calls
+  inside construction. The resulting Accessed-None cascade looked like a game
+  integration defect but disappeared when the marker write was removed. Hold
+  live UObject/world/controller/pawn references for identity and prove the
+  equality detector with a real other-actor negative control; never mutate the
+  subject merely to label it for a read-only probe.
