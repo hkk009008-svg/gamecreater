@@ -11,6 +11,9 @@ cost round trips before they were understood:
 """
 
 import base64
+import contextlib
+import inspect
+import io
 import json
 import sys
 import tempfile
@@ -70,48 +73,87 @@ class TestImageExtraction(unittest.TestCase):
         self.assertEqual(mc.Mcp.image_bytes(r), (None, None))
 
 
-class TestReservedActBackstop(unittest.TestCase):
-    """AGENTS.md reserves deletion, publishing and canonical writes for
-    per-act authorization. Routing one through a toolset does not change
-    that. This is a backstop, not a substitute for asking."""
+class TestReadOnlyCallAllowlist(unittest.TestCase):
+    """The nominally read-only helper exposes only its fixed capture calls."""
 
     def _client(self):
         m = mc.Mcp("http://127.0.0.1:1/mcp")
         m.sid = "fake"
         return m
 
-    def test_destructive_tool_names_are_refused_before_any_request(self):
+    def test_every_unlisted_tool_is_refused_before_any_request(self):
         m = self._client()
-        for name in ("DeleteAsset", "RemoveActor", "PublishPlugin",
-                     "SetVisibility"):
+        for name in ("DeleteAsset", "SetProperty", "WriteAsset",
+                     "GetSelectedActors", "CookContent", "PackageProject"):
             with patch.object(mc.Mcp, "raw_call") as rc:
                 with self.assertRaises(mc.McpError, msg=name) as caught:
                     m.toolset_call("Some.Toolset", name, {})
-                self.assertIn("AGENTS.md", str(caught.exception))
+                self.assertIn("not one of", str(caught.exception))
                 rc.assert_not_called()
 
-    def test_cook_and_package_names_are_not_reserved(self):
+    def test_only_fixed_capture_calls_pass_through(self):
         m = self._client()
-        for name in ("CookContent", "PackageProject"):
+        for name in ("CaptureEditorImage", "CaptureAssetImage"):
             with patch.object(mc.Mcp, "raw_call", return_value={"ok": 1}) as rc:
-                m.toolset_call("Some.Toolset", name, {})
+                m.toolset_call("EditorToolset.EditorAppToolset", name, {})
                 rc.assert_called_once()
 
-    def test_read_only_tool_names_pass_through(self):
-        """The quiet direction: a backstop that blocked everything would be
-        removed within a day."""
+    def test_reserved_call_has_no_override(self):
         m = self._client()
-        for name in ("GetSelectedActors", "CaptureAssetImage",
-                     "ListTests", "DescribeToolset"):
-            with patch.object(mc.Mcp, "raw_call", return_value={"ok": 1}) as rc:
-                m.toolset_call("Some.Toolset", name, {})
-                rc.assert_called_once()
+        self.assertNotIn("allow_reserved",
+                         inspect.signature(m.toolset_call).parameters)
+        with patch.object(mc.Mcp, "raw_call") as rc:
+            with self.assertRaises(TypeError):
+                m.toolset_call("T", "DeleteAsset", {}, allow_reserved=True)
+            rc.assert_not_called()
 
-    def test_reserved_can_be_called_explicitly_after_authorization(self):
-        m = self._client()
-        with patch.object(mc.Mcp, "raw_call", return_value={"ok": 1}) as rc:
-            m.toolset_call("T", "DeleteAsset", {}, allow_reserved=True)
-            rc.assert_called_once()
+
+class TestFreshCaptureOutput(unittest.TestCase):
+    def test_fresh_output_is_published(self):
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t) / "capture.png"
+            mc.write_fresh(out, PNG)
+            self.assertEqual(out.read_bytes(), PNG)
+
+    def test_existing_output_is_refused_and_preserved(self):
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t) / "capture.png"
+            original = b"existing evidence"
+            out.write_bytes(original)
+            with self.assertRaises(FileExistsError):
+                mc.write_fresh(out, PNG)
+            self.assertEqual(out.read_bytes(), original)
+
+    def test_missing_parent_is_refused_without_creating_it(self):
+        with tempfile.TemporaryDirectory() as t:
+            parent = Path(t) / "missing"
+            out = parent / "capture.png"
+            with self.assertRaises(FileNotFoundError):
+                mc.write_fresh(out, PNG)
+            self.assertFalse(parent.exists())
+
+
+class TestReadOnlyCliShape(unittest.TestCase):
+    def test_help_only_advertises_fixed_read_only_operations(self):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as caught:
+                mc.main(["mcp_client", "--help"])
+        self.assertEqual(caught.exception.code, 0)
+        help_text = stdout.getvalue()
+        for command in ("handshake", "toolsets", "describe",
+                        "capture-editor", "capture-asset"):
+            self.assertIn(command, help_text)
+        self.assertNotIn("allow-reserved", help_text)
+        self.assertNotRegex(help_text, r"[,{]call[,}]")
+
+    def test_generic_call_subcommand_is_rejected_before_connect(self):
+        with patch.object(mc.Mcp, "connect") as connect:
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as caught:
+                    mc.main(["mcp_client", "call", "T", "DeleteAsset"])
+        self.assertEqual(caught.exception.code, 2)
+        connect.assert_not_called()
 
 
 class TestEndpointConfig(unittest.TestCase):
@@ -127,6 +169,22 @@ class TestEndpointConfig(unittest.TestCase):
         self.assertEqual(mc.endpoint_from_config(Path("Z:/nope.json")),
                          mc.DEFAULT_URL)
 
+    def test_invalid_present_config_is_not_silently_replaced_by_default(self):
+        with tempfile.TemporaryDirectory() as t:
+            cfg = Path(t) / ".mcp.json"
+            cfg.write_text('{"mcpServers":{"unreal-mcp":{"url":"not a url"}}}',
+                           encoding="utf-8")
+            with self.assertRaises(mc.McpError):
+                mc.endpoint_from_config(cfg)
+
+    def test_endpoint_parts_handles_default_ports_and_rejects_credentials(self):
+        self.assertEqual(mc.endpoint_parts("https://localhost/mcp"),
+                         ("localhost", 443, "/mcp"))
+        with self.assertRaises(mc.McpError):
+            mc.endpoint_parts("http://user:secret@localhost:8000/mcp")
+        with self.assertRaises(mc.McpError):
+            mc.endpoint_parts("https://example.com/mcp")
+
 
 class TestProbeNeverRaises(unittest.TestCase):
     """probe() feeds a diagnostic. A diagnostic that throws tells you
@@ -137,6 +195,11 @@ class TestProbeNeverRaises(unittest.TestCase):
         self.assertFalse(p["speaks_mcp"])
         self.assertIsNotNone(p["error"])
         self.assertEqual(p["tools"], [])
+
+    def test_non_loopback_endpoint_is_reported_not_raised(self):
+        p = mc.probe("https://example.com/mcp")
+        self.assertFalse(p["speaks_mcp"])
+        self.assertIn("loopback", p["error"])
 
     def test_garbage_response_is_not_a_pass(self):
         """Something answering HTTP on the port is not an MCP server."""

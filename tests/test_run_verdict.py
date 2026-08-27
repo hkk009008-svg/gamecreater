@@ -247,6 +247,113 @@ class TestOutputVerdictIsIndependent(unittest.TestCase):
             v = rv.verdict_for(self._clean_log(tmp), [art])
             self.assertEqual(v.output, "PRESENT_BUT_FAILING")
 
+    def test_observed_non_success_statuses_are_not_results(self):
+        for status in ("REFUSED", "DIAGNOSTIC", "INCOMPLETE", "UNMEASURED",
+                       "PARTIAL", "BLOCKED", "SKIPPED", "STARTED", "RUNNING"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                art = Path(tmp) / "report.json"
+                art.write_text(json.dumps({"status": status}), encoding="utf-8")
+                v = rv.verdict_for(self._clean_log(tmp), [art])
+                self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+                self.assertFalse(v.citable)
+
+    def test_unknown_top_level_status_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "report.json"
+            art.write_text('{"status":"CURRENT_CONTRACT_CAPTURED"}',
+                           encoding="utf-8")
+            v = rv.verdict_for(self._clean_log(tmp), [art])
+            self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+
+    def test_nested_execution_must_be_exactly_complete(self):
+        for status in ("STARTED", "RUNNING", "INCOMPLETE", None):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                art = Path(tmp) / "report.json"
+                art.write_text(json.dumps({
+                    "status": "PASS",
+                    "execution": {"status": status, "errors": []},
+                    "output": {"status": "CURRENT_CONTRACT_CAPTURED"},
+                }), encoding="utf-8")
+                v = rv.verdict_for(self._clean_log(tmp), [art])
+                self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+                self.assertTrue(any("expected 'COMPLETE'" in r for r in v.reasons))
+
+    def test_nested_execution_failure_is_not_a_result(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "report.json"
+            art.write_text(json.dumps({
+                "execution": {"status": "FAILED", "errors": []},
+                "output": {"status": "UNMEASURED"},
+            }), encoding="utf-8")
+            v = rv.verdict_for(self._clean_log(tmp), [art])
+            self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+            self.assertTrue(any("execution.status" in r for r in v.reasons))
+
+    def test_nested_output_inconclusive_is_not_a_result(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "report.json"
+            art.write_text(json.dumps({
+                "execution": {"status": "COMPLETE", "errors": []},
+                "output": {"status": "INCONCLUSIVE_INSTRUMENT_FAILURE"},
+            }), encoding="utf-8")
+            v = rv.verdict_for(self._clean_log(tmp), [art])
+            self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+            self.assertTrue(any("output.status" in r for r in v.reasons))
+
+    def test_nested_domain_status_without_top_level_status_fails_closed(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "report.json"
+            art.write_text(json.dumps({
+                "execution": {"status": "COMPLETE", "errors": []},
+                "output": {"status": "CURRENT_CONTRACT_CAPTURED"},
+            }), encoding="utf-8")
+            v = rv.verdict_for(self._clean_log(tmp), [art])
+            self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+            self.assertTrue(any("no normalized top-level status" in r
+                                for r in v.reasons))
+
+    def test_top_level_pass_normalizes_nested_domain_success(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "report.json"
+            art.write_text(json.dumps({
+                "status": "PASS",
+                "execution": {"status": "COMPLETE", "errors": []},
+                "output": {"status": "CURRENT_CONTRACT_CAPTURED"},
+            }), encoding="utf-8")
+            v = rv.verdict_for(self._clean_log(tmp), [art])
+            self.assertEqual(v.output, "PRESENT")
+
+    def test_nested_failures_list_is_not_a_result(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "report.json"
+            art.write_text(json.dumps({
+                "status": "PASS",
+                "execution": {"status": "COMPLETE", "failures": ["x"]},
+            }), encoding="utf-8")
+            v = rv.verdict_for(self._clean_log(tmp), [art])
+            self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+
+    def test_truthy_scalar_or_object_error_collections_fail(self):
+        payloads = (
+            {"status": "PASS", "errors": "fatal"},
+            {"status": "PASS", "errors": {"code": 7}},
+            {"status": "PASS", "failures": 2},
+            {"status": "PASS", "execution": {"status": "COMPLETE"},
+             "output": {"status": "READY", "errors": "fatal"}},
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as tmp:
+                art = Path(tmp) / "report.json"
+                art.write_text(json.dumps(payload), encoding="utf-8")
+                v = rv.verdict_for(self._clean_log(tmp), [art])
+                self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+                self.assertFalse(v.citable)
+
     def test_non_empty_errors_list_fails_the_artifact(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -468,6 +575,29 @@ class TestExitCodeIsRecordedNotTrusted(unittest.TestCase):
     def test_missing_log_is_no_log_not_empty(self):
         v = rv.verdict_for(Path("Z:/does/not/exist.log"))
         self.assertEqual(v.execution, "NO_LOG")
+
+
+class TestStandaloneCliIsDiagnostic(unittest.TestCase):
+    def test_clean_log_and_artifact_are_not_called_citable_without_binding(self):
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "run.log"
+            log.write_text(engine_log("LogPython: done", CLEAN_TAIL),
+                           encoding="utf-8")
+            art = Path(tmp) / "older-unrelated.json"
+            art.write_text('{"status":"PASS"}', encoding="utf-8")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                rc = rv.main([
+                    "run_verdict", str(log), "--artifact", str(art), "--json"
+                ])
+            report = json.loads(stdout.getvalue())
+        self.assertEqual(rc, 1)
+        self.assertTrue(report["citation_blocked"])
+        self.assertFalse(report["citable"])
+        self.assertIn("diagnostic only", " ".join(report["reasons"]))
 
 
 class TestDecodingIsNeverAVerdict(unittest.TestCase):

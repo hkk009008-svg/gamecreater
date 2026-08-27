@@ -16,12 +16,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import check_lessons_inbox as cli  # noqa: E402
 import hook_pretooluse as hook  # noqa: E402
+from game_config import GameConfig  # noqa: E402
 
 
 def make_repo(tmp: Path, content: str) -> Path:
@@ -99,6 +103,91 @@ class TestAppendOnlyDetector(unittest.TestCase):
         verdict, detail, _ = self.verdict()
         self.assertEqual(verdict, "OK")
         self.assertIn("+0", detail)
+
+
+class TestGameInboxDiscovery(unittest.TestCase):
+
+    def test_configured_path_with_spaces_is_discovered(self):
+        with tempfile.TemporaryDirectory() as td:
+            temp = Path(td)
+            harness = temp / "harness worktree"
+            harness.mkdir()
+            game = temp / "game repo"
+            game.mkdir()
+            subprocess.run(["git", "init", "-q", str(game)], check=True)
+            inbox = game / "game docs" / "LESSONS.md"
+            inbox.parent.mkdir()
+            inbox.write_text(SEED, encoding="utf-8")
+            config = harness / "GAME.local.md"
+            config.write_text(
+                f"- Lessons inbox: `{inbox}`\n", encoding="utf-8")
+
+            with patch.object(cli, "ROOT", harness):
+                result = cli.game_inbox()
+
+        self.assertEqual(result.status, "OK")
+        self.assertEqual(result.repo_root, game)
+        self.assertEqual(result.inbox, inbox)
+
+    def test_loader_result_from_primary_checkout_is_accepted(self):
+        with tempfile.TemporaryDirectory() as td:
+            temp = Path(td)
+            worktree = temp / "linked worktree"
+            worktree.mkdir()
+            primary = temp / "primary checkout"
+            primary.mkdir()
+            config = primary / "GAME.local.md"
+            config.write_text("local", encoding="utf-8")
+            inbox = primary / "LESSONS.md"
+            inbox.write_text(SEED, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(primary)], check=True)
+            loaded = GameConfig(source=config, lessons=inbox)
+
+            with (
+                patch.object(cli, "ROOT", worktree),
+                patch.object(cli, "load_game_config", return_value=loaded) as load,
+            ):
+                result = cli.game_inbox()
+
+        load.assert_called_once_with(worktree / "GAME.local.md")
+        self.assertEqual(result.status, "OK")
+        self.assertIn(str(config), result.detail)
+
+    def test_unconfigured_missing_and_error_are_distinct(self):
+        with tempfile.TemporaryDirectory() as td:
+            temp = Path(td)
+            absent_config = temp / "absent" / "GAME.local.md"
+            cases = [
+                (GameConfig(source=absent_config), "UNCONFIGURED"),
+                (GameConfig(source=temp / "GAME.local.md",
+                            lessons=temp / "missing LESSONS.md"), "MISSING"),
+            ]
+            (temp / "GAME.local.md").write_text("local", encoding="utf-8")
+            for configured, expected in cases:
+                with self.subTest(expected=expected), patch.object(
+                        cli, "load_game_config", return_value=configured):
+                    self.assertEqual(cli.game_inbox().status, expected)
+
+            not_repo = temp / "outside repo" / "LESSONS.md"
+            not_repo.parent.mkdir()
+            not_repo.write_text(SEED, encoding="utf-8")
+            configured = GameConfig(
+                source=temp / "GAME.local.md", lessons=not_repo)
+            with patch.object(cli, "load_game_config", return_value=configured):
+                self.assertEqual(cli.game_inbox().status, "ERROR")
+
+    def test_default_main_reports_unconfigured_game_and_fails_visible(self):
+        discovery = cli.InboxDiscovery("UNCONFIGURED", "no game binding")
+        stream = StringIO()
+        with (
+            patch.object(cli, "game_inbox", return_value=discovery),
+            patch.object(cli, "check_one", return_value=("OK", "+0 entries", 0)),
+            redirect_stdout(stream),
+        ):
+            code = cli.main(["check_lessons_inbox.py"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("game: UNCONFIGURED (no game binding)", stream.getvalue())
 
 
 class TestTruncationGuard(unittest.TestCase):

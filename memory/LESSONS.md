@@ -668,3 +668,37 @@ The next sweep starts below this line.
   boundary with `git ls-files --others --exclude-standard` and an exact-path
   dry-run add; treat exit one with no output only as “no matching rule,” not as
   a complete admission proof.
+- 2026-08-27 — A cold-start checker reported that Kurogane's current
+  `NOW.md` had no next action, blockers, or register even though all three
+  were plainly present. The pruned handoff used `Resume here` and opaque IDs
+  such as `KG-A2B-PLAYTEST`; `session_start.py` still required exact template
+  headings and IDs ending in digits. A resume instrument needs a tested file
+  contract, and identifiers must be treated as opaque labels rather than
+  reverse-engineered from one historical shape. Evidence: the real
+  `python scripts/session_start.py` run on 2026-08-27 produced three false
+  warnings; the corrected NOW headings and regression test make the actual
+  next action and both register-ID shapes visible. Candidate target:
+  `checkpoint-a-hold` at the next arc-end distill.
+- 2026-08-27 — CURRENT ENTRY-POINT CORRECTION FOR THE APPEND-ONLY HISTORY.
+  Older entries name retired `scripts/doctor.py`, `scripts/mcp_session.py`, and
+  `mcp-check` commands. The current consumers are `scripts/session_start.py`,
+  `scripts/engine_run.py mode`, and `scripts/engine_run.py epic-mcp-check`.
+  `.mcp.json` is only an internal optional Epic endpoint descriptor; Codex MCP
+  registration is a separate product configuration. Preserve the old entries
+  as evidence, but do not replay their commands.
+- 2026-08-27 — A GUARD MUST BIND THE ACTUAL TARGET AND THE WHOLE CRITICAL
+  INTERVAL. The push guard once checked the checkout's origin while an explicit
+  remote or later shell segment could name another destination; the engine
+  census once released its claim before Unreal even launched; and a Windows
+  Claude hook named a shell that was absent on the host. Parse one unambiguous
+  named push remote and inspect its push URL, execute the supported Windows
+  entry in a control, and hold one OS launch lease from before process census
+  through verdict/sidecar publication. A precondition checked against a sibling
+  input or released before the act is not a safety boundary.
+- 2026-08-27 — READ-ONLY AND SUCCESS ARE POSITIVE CONTRACTS. A helper described
+  as read-only still exposed an arbitrary MCP call plus an override and silently
+  replaced capture paths; a result reader accepted `REFUSED`, `DIAGNOSTIC`, and
+  `PARTIAL` because they were absent from a short denylist. Expose only named
+  read operations, publish evidence with exclusive creation, accept only the
+  normalized top-level success vocabulary, and require nested execution to be
+  exactly `COMPLETE`. A denylist grows one incident behind its input language.

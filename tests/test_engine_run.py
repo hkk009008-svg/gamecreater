@@ -74,11 +74,30 @@ class TestCommandBuilder(unittest.TestCase):
                                    needs_rhi=False, extra=["-nullrhi"])
             self.assertIn("-nullrhi", cmd)
 
+    def test_non_rendering_run_defaults_to_exactly_one_nullrhi(self):
+        with tempfile.TemporaryDirectory() as t:
+            e, u, s = fake_project(Path(t))
+            cmd = er.build_command(e, u, s, Path(t) / "r.log",
+                                   needs_rhi=False)
+            self.assertEqual(cmd.count("-nullrhi"), 1)
+            self.assertNotIn("-RenderOffscreen", cmd)
+
     def test_needs_rhi_adds_renderoffscreen(self):
         with tempfile.TemporaryDirectory() as t:
             e, u, s = fake_project(Path(t))
             cmd = er.build_command(e, u, s, Path(t) / "r.log", needs_rhi=True)
             self.assertIn("-RenderOffscreen", cmd)
+            self.assertNotIn("-nullrhi", cmd)
+
+    def test_renderoffscreen_requires_declared_rhi_intent(self):
+        with tempfile.TemporaryDirectory() as t:
+            e, u, s = fake_project(Path(t))
+            with self.assertRaises(er.IntentError) as cm:
+                er.build_command(
+                    e, u, s, Path(t) / "r.log", needs_rhi=False,
+                    extra=["-RenderOffscreen"],
+                )
+            self.assertIn("requires needs_rhi=True", str(cm.exception))
 
     def test_renderoffscreen_not_doubled_if_caller_passed_it(self):
         with tempfile.TemporaryDirectory() as t:
@@ -160,6 +179,20 @@ class TestCommandBuilder(unittest.TestCase):
             cmd = er.build_command(e, u, s, Path(t) / "r.log", needs_rhi=False)
             for flag in er.BASE_FLAGS:
                 self.assertIn(flag, cmd)
+
+    def test_headless_help_names_real_extra_and_artifact_contracts(self):
+        parser = er.build_parser()
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaises(SystemExit) as cm:
+            parser.parse_args(["headless", "--help"])
+        self.assertEqual(cm.exception.code, 0)
+        text = " ".join(output.getvalue().split())
+        self.assertIn("Omitting it makes the run", text)
+        self.assertIn("diagnostic-only and non-citable", text)
+        self.assertIn("ENGINE_RUN_ARTIFACT", text)
+        self.assertIn("legacy plain, non-option extras only", text)
+        self.assertIn("prefixed Unreal flags", text)
+        self.assertIn("--extra-flag=VALUE", text)
 
     def test_missing_script_refused_before_launch(self):
         with tempfile.TemporaryDirectory() as t:
@@ -338,46 +371,64 @@ class TestWatchdog(unittest.TestCase):
 
 
 class TestModeRouting(unittest.TestCase):
-    def _run_headless(self, tmp: Path):
+    def _run_headless(self, tmp: Path, *extra: str):
         e, u, s = fake_project(tmp)
         a = er.build_parser().parse_args(
             ["headless", str(s), "--engine", str(e), "--uproject", str(u),
-             "--out-dir", str(tmp / "runs"), "--dry-run"])
+             "--out-dir", str(tmp / "runs"), "--dry-run", *extra])
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             rc = er.cmd_headless(a)
         return rc, out.getvalue() + err.getvalue()
 
-    def test_headless_refused_when_an_editor_is_open(self):
-        with tempfile.TemporaryDirectory() as t:
-            tmp = Path(t)
-            with patch.object(er.cec, "list_processes",
-                              return_value=["UnrealEditor-Cmd.exe"]):
-                rc, text = self._run_headless(tmp)
-            self.assertEqual(rc, 3)
-            self.assertIn("an Unreal editor is running", text)
-            self.assertIn("use OpenClaw", text)
+    def test_real_launch_gate_refuses_an_open_editor(self):
+        with patch.object(er.cec, "list_processes",
+                          return_value=["UnrealEditor-Cmd.exe"]):
+            refusal = er.require_headless_available()
+        self.assertIn("an Unreal editor is running", refusal)
+        self.assertIn("use OpenClaw", refusal)
 
-    def test_headless_fails_closed_when_processes_cannot_be_listed(self):
+    def test_real_launch_gate_fails_closed_when_processes_cannot_be_listed(self):
         """An enumerator that crashed is not proof that no editor is running."""
-        with tempfile.TemporaryDirectory() as t:
-            tmp = Path(t)
-            with patch.object(er.cec, "list_processes",
-                              side_effect=er.cec.ProcessListError("boom")):
-                rc, text = self._run_headless(tmp)
-            self.assertEqual(rc, 3)
-            self.assertIn("fail-closed", text)
+        with patch.object(er.cec, "list_processes",
+                          side_effect=er.cec.ProcessListError("boom")):
+            refusal = er.require_headless_available()
+        self.assertIn("fail-closed", refusal)
 
-    def test_headless_allowed_when_the_machine_is_clear(self):
-        """The quiet direction: a router that refused everything would pass
-        the two refusal tests above."""
+    def test_dry_run_does_not_require_editor_clear(self):
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
-            with patch.object(er.cec, "list_processes",
-                              return_value=["explorer.exe", "python.exe"]):
+            with patch.object(er, "require_headless_available",
+                              side_effect=AssertionError("must not be called")):
                 rc, text = self._run_headless(tmp)
             self.assertEqual(rc, 0)
             self.assertIn("--dry-run", text)
+
+    def test_dry_run_still_validates_the_command(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            e, u, script = fake_project(tmp)
+            script.unlink()
+            a = er.build_parser().parse_args([
+                "headless", str(script), "--engine", str(e),
+                "--uproject", str(u), "--dry-run",
+            ])
+            out, err = io.StringIO(), io.StringIO()
+            with patch.object(er, "require_headless_available",
+                              side_effect=AssertionError("must not be called")), \
+                 redirect_stdout(out), redirect_stderr(err):
+                rc = er.cmd_headless(a)
+            self.assertEqual(rc, 3)
+            self.assertIn("script does not exist", out.getvalue() + err.getvalue())
+
+    def test_headless_expect_rhi_requires_needs_rhi(self):
+        with tempfile.TemporaryDirectory() as t:
+            with patch.object(er, "require_headless_available",
+                              side_effect=AssertionError("must not be called")):
+                rc, text = self._run_headless(
+                    Path(t), "--expect-rhi", "D3D11")
+            self.assertEqual(rc, 3)
+            self.assertIn("--expect-rhi requires --needs-rhi", text)
 
     def test_existing_log_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as t:
@@ -459,6 +510,18 @@ class TestSidecarProvenance(unittest.TestCase):
             self.assertEqual(captured["KG_TOKEN"], "<redacted>")
             self.assertNotIn("KUROGANE_UNRELATED", captured)
 
+    def test_project_environment_uses_the_effective_child_environment(self):
+        with tempfile.TemporaryDirectory() as td:
+            script = Path(td) / "probe.py"
+            script.write_text("OUT = 'ENGINE_RUN_ARTIFACT'\n", encoding="utf-8")
+            with patch.dict(er.os.environ,
+                            {"ENGINE_RUN_ARTIFACT": "stale-parent.json"},
+                            clear=False):
+                run_env = er.child_environment([Path("fresh.json").resolve()])
+                captured = er.project_environment(script, run_env)
+            self.assertEqual(captured["ENGINE_RUN_ARTIFACT"],
+                             str(Path("fresh.json").resolve()))
+
     def test_capture_bucket_reads_selected_adapter(self):
         with tempfile.TemporaryDirectory() as t:
             log = Path(t) / "run.log"
@@ -510,6 +573,18 @@ class TestHeadlessEvidenceBinding(unittest.TestCase):
             "headless", str(s), "--engine", str(e), "--uproject", str(u),
             "--out-dir", str(root / "runs"), "--artifact", str(artifact)])
 
+    def test_standard_child_output_env_exists_only_for_one_artifact(self):
+        one = Path("result.json").resolve()
+        with patch.dict(er.os.environ,
+                        {"ENGINE_RUN_ARTIFACT": "stale-parent.json"},
+                        clear=False):
+            env = er.child_environment([one])
+            empty = er.child_environment([])
+            many = er.child_environment([one, Path("other.json").resolve()])
+        self.assertEqual(env["ENGINE_RUN_ARTIFACT"], str(one))
+        self.assertNotIn("ENGINE_RUN_ARTIFACT", empty)
+        self.assertNotIn("ENGINE_RUN_ARTIFACT", many)
+
     def test_absent_then_fast_present_is_not_false_stale(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
@@ -517,6 +592,9 @@ class TestHeadlessEvidenceBinding(unittest.TestCase):
             args = self._args(root, artifact)
 
             def produce(_cmd, log, **_kwargs):
+                self.assertEqual(
+                    _kwargs["env"]["ENGINE_RUN_ARTIFACT"],
+                    str(artifact.resolve()))
                 artifact.write_text('{"status":"PASS"}', encoding="utf-8")
                 log.write_text(self.CLEAN_LOG, encoding="utf-8")
                 return 0, None, 0.001
@@ -569,6 +647,15 @@ class TestEpicMcpEndpoint(unittest.TestCase):
     def test_unreadable_config_falls_back_to_plugin_defaults(self):
         with patch.object(er, "MCP_CONFIG", Path("Z:/nope.json")):
             self.assertEqual(er.mcp_endpoint(), ("127.0.0.1", 8000, "/mcp"))
+
+    def test_invalid_present_config_is_not_silently_treated_as_default(self):
+        with tempfile.TemporaryDirectory() as t:
+            cfg = Path(t) / ".mcp.json"
+            cfg.write_text('{"mcpServers":{"unreal-mcp":{"url":"bad"}}}',
+                           encoding="utf-8")
+            with patch.object(er, "MCP_CONFIG", cfg), \
+                 self.assertRaisesRegex(RuntimeError, "endpoint"):
+                er.mcp_endpoint()
 
     def test_port_open_is_true_for_a_real_listener(self):
         """Known-positive control: without it, port_open() returning False

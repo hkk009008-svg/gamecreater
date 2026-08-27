@@ -12,7 +12,8 @@ it does not teach. Lessons live in skills, current truth lives in the game's
 2. Read `GAME.local.md` — the active game's roots, engine, and repos. If it
    is missing, copy `templates/GAME.local.template.md` and ask the user to
    confirm the paths.
-3. Synchronize skills if needed (`python scripts/sync_skills.py`).
+3. Check skill mirrors with `python scripts/sync_skills.py --check`; run it
+   without `--check` only when drift is reported.
 4. Read the active game's `NOW.md` (path named in `GAME.local.md`) — the
    current arc, open register, blockers, and the next executable action.
    Deep reference docs (`STATE.md`, `KUROGANE-GUIDE.md`, `INDEX.md`) are

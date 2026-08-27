@@ -3,7 +3,6 @@
     python scripts/mcp_client.py handshake
     python scripts/mcp_client.py toolsets
     python scripts/mcp_client.py describe <Toolset.Name>
-    python scripts/mcp_client.py call <Toolset.Name> <ToolName> '<json args>'
     python scripts/mcp_client.py capture-editor <out.png>
     python scripts/mcp_client.py capture-asset <assetPath> <out.png>
 
@@ -21,9 +20,8 @@ measured on 2026-08-14:
 AUTHORITY. An MCP call is not a lesser act than a Python one. AGENTS.md
 reserves canonical `Content/` writes, deletions, publishing and DCC launches
 for per-act authorization, and calling them through a toolset does not
-change that. This module ships read-only helpers only; RESERVED_RE below
-refuses the obvious destructive names as a backstop, not as a substitute for
-asking.
+change that. This module ships read-only helpers only. Generic tool calls are
+not exposed; only the two fixed capture operations below may use `call_tool`.
 
 PLUGIN QUIRKS worth knowing before you debug your own arguments:
 
@@ -47,6 +45,7 @@ import json
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -54,30 +53,56 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_URL = "http://127.0.0.1:8000/mcp"
 PROTOCOL = "2025-06-18"
 
-# Backstop only. The authorization boundary is AGENTS.md, not this regex.
-RESERVED_RE = re.compile(
-    r"(delete|destroy|remove|publish|push|merge|deploy"
-    r"|savepackage|save_all|setvisibility)", re.IGNORECASE)
+READ_ONLY_TOOL_CALLS = {
+    ("EditorToolset.EditorAppToolset", "CaptureEditorImage"),
+    ("EditorToolset.EditorAppToolset", "CaptureAssetImage"),
+}
 
 
 class McpError(RuntimeError):
     pass
 
 
+def endpoint_parts(url: str) -> tuple[str, int, str]:
+    """Validate one loopback HTTP MCP URL and return host, port, and path."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise McpError(f"invalid MCP endpoint URL: {exc}") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise McpError("MCP endpoint must be an http(s) URL with a host")
+    if parsed.hostname.lower() not in {"127.0.0.1", "localhost", "::1"}:
+        raise McpError("MCP endpoint must be loopback-local")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise McpError("MCP endpoint must not contain credentials, query, or fragment")
+    return (parsed.hostname, port or (443 if parsed.scheme == "https" else 80),
+            parsed.path or "/")
+
+
 def endpoint_from_config(cfg_path: Path | None = None) -> str:
-    """Read the URL from .mcp.json so this client cannot drift from the one
-    the harness itself would use."""
+    """Read and validate the optional internal .mcp.json endpoint."""
     cfg_path = cfg_path or (ROOT / ".mcp.json")
     try:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-        return cfg["mcpServers"]["unreal-mcp"]["url"]
-    except Exception:
+    except FileNotFoundError:
         return DEFAULT_URL
+    except (OSError, ValueError) as exc:
+        raise McpError(f"cannot read valid MCP config at {cfg_path}: {exc}") from exc
+    try:
+        url = cfg["mcpServers"]["unreal-mcp"]["url"]
+    except (KeyError, TypeError) as exc:
+        raise McpError(f"MCP config at {cfg_path} has no unreal-mcp URL") from exc
+    if not isinstance(url, str):
+        raise McpError(f"MCP endpoint in {cfg_path} is not a string")
+    endpoint_parts(url)
+    return url
 
 
 class Mcp:
     def __init__(self, url: str | None = None, timeout: int = 120):
         self.url = url or endpoint_from_config()
+        endpoint_parts(self.url)
         self.timeout = timeout
         self.sid: str | None = None
         self.server_info: dict = {}
@@ -156,13 +181,12 @@ class Mcp:
         return "\n".join(out), bool(r.get("isError"))
 
     def toolset_call(self, toolset: str, tool: str,
-                     arguments: dict | None = None,
-                     allow_reserved: bool = False) -> dict:
-        if not allow_reserved and RESERVED_RE.search(tool):
+                     arguments: dict | None = None) -> dict:
+        if (toolset, tool) not in READ_ONLY_TOOL_CALLS:
             raise McpError(
-                f"refusing to call {tool!r}: its name matches an act AGENTS.md "
-                f"reserves for per-act authorization. Ask, then pass "
-                f"allow_reserved=True for that one call.")
+                f"refusing {toolset}.{tool}: it is not one of this helper's "
+                f"fixed read-only capture calls. There is no generic-call "
+                f"override; use an exactly authorized editor tool instead.")
         return self.raw_call("call_tool", {
             "toolset_name": toolset, "tool_name": tool,
             "arguments": arguments or {}})
@@ -212,10 +236,15 @@ def probe(url: str | None = None) -> dict:
 
     Returns a dict; never raises. `speaks_mcp` is the only honest answer to
     "is MCP up", and it is strictly stronger than "the port is open"."""
-    out = {"url": url or endpoint_from_config(), "speaks_mcp": False,
-           "protocol": None, "tools": [], "error": None}
     try:
-        m = Mcp(url)
+        resolved = url or endpoint_from_config()
+    except Exception as e:  # noqa: BLE001
+        return {"url": url, "speaks_mcp": False, "protocol": None,
+                "tools": [], "error": f"{type(e).__name__}: {e}"}
+    out = {"url": resolved, "speaks_mcp": False, "protocol": None,
+           "tools": [], "error": None}
+    try:
+        m = Mcp(resolved)
         info = m.connect()
         out["protocol"] = info.get("protocolVersion")
         out["capabilities"] = sorted((info.get("capabilities") or {}).keys())
@@ -225,6 +254,22 @@ def probe(url: str | None = None) -> dict:
     except Exception as e:                                       # noqa: BLE001
         out["error"] = f"{type(e).__name__}: {e}"
     return out
+
+
+def require_fresh_output(path: Path) -> None:
+    """Reject a capture path that cannot be published without replacement."""
+    if not path.parent.is_dir():
+        raise FileNotFoundError(
+            f"capture parent directory does not exist: {path.parent}")
+    if path.exists():
+        raise FileExistsError(f"capture output already exists: {path}")
+
+
+def write_fresh(path: Path, data: bytes) -> None:
+    """Publish one capture using exclusive creation; never make directories."""
+    require_fresh_output(path)
+    with path.open("xb") as stream:
+        stream.write(data)
 
 
 # --- cli -----------------------------------------------------------------
@@ -238,10 +283,6 @@ def main(argv: list[str]) -> int:
     sub.add_parser("handshake")
     sub.add_parser("toolsets")
     d = sub.add_parser("describe"); d.add_argument("toolset")
-    c = sub.add_parser("call")
-    c.add_argument("toolset"); c.add_argument("tool")
-    c.add_argument("args", nargs="?", default="{}")
-    c.add_argument("--allow-reserved", action="store_true")
     ce = sub.add_parser("capture-editor"); ce.add_argument("out", type=Path)
     ca = sub.add_parser("capture-asset")
     ca.add_argument("asset"); ca.add_argument("out", type=Path)
@@ -251,6 +292,13 @@ def main(argv: list[str]) -> int:
         p = probe(a.url)
         print(json.dumps(p, indent=2))
         return 0 if p["speaks_mcp"] else 1
+
+    if a.cmd in ("capture-editor", "capture-asset"):
+        try:
+            require_fresh_output(a.out)
+        except OSError as e:
+            print(f"REFUSED: {e}", file=sys.stderr)
+            return 2
 
     m = Mcp(a.url)
     try:
@@ -270,17 +318,6 @@ def main(argv: list[str]) -> int:
         print(txt)
         return 1 if err else 0
 
-    if a.cmd == "call":
-        try:
-            r = m.toolset_call(a.toolset, a.tool, json.loads(a.args),
-                               allow_reserved=a.allow_reserved)
-        except McpError as e:
-            print(f"REFUSED/FAILED: {e}", file=sys.stderr)
-            return 2
-        for c_ in r.get("content", []):
-            print(c_.get("text", f"<{c_.get('type')}>"))
-        return 1 if r.get("isError") else 0
-
     if a.cmd in ("capture-editor", "capture-asset"):
         if a.cmd == "capture-editor":
             r = m.toolset_call("EditorToolset.EditorAppToolset",
@@ -297,8 +334,11 @@ def main(argv: list[str]) -> int:
         if not data:
             print("no image payload in response", file=sys.stderr)
             return 1
-        a.out.parent.mkdir(parents=True, exist_ok=True)
-        a.out.write_bytes(data)
+        try:
+            write_fresh(a.out, data)
+        except OSError as e:
+            print(f"REFUSED: {e}", file=sys.stderr)
+            return 2
         print(f"{mime} -> {a.out}  ({len(data):,} bytes)")
         return 0
 

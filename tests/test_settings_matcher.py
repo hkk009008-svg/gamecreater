@@ -25,12 +25,18 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS = ROOT / ".claude" / "settings.json"
 CODEX_HOOKS = ROOT / ".codex" / "hooks.json"
+sys.path.insert(0, str(ROOT / "scripts"))
+import hook_antigravity_pretooluse as antigravity_hook  # noqa: E402
 
 # Every tool in this harness that can execute a shell command string.
 REQUIRED = ("Bash", "PowerShell", "Monitor")
@@ -72,7 +78,7 @@ class TestPreToolUseMatcher(unittest.TestCase):
                 hooks, f"matcher {entry.get('matcher')!r} has no hook command")
             for h in hooks:
                 self.assertEqual(h.get("type"), "command")
-                self.assertIn("run_pretooluse", h.get("command", ""),
+                self.assertIn("hook_pretooluse.py", h.get("command", ""),
                               "the matcher must route to the dispatcher")
 
 
@@ -117,6 +123,25 @@ class TestCodexHooks(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SESSION ORIENTATION", result.stdout)
 
+    @unittest.skipUnless(os.name == "nt", "commandWindows is a Windows entry")
+    def test_windows_guard_command_fails_closed_on_schema_drift(self):
+        data = json.loads(CODEX_HOOKS.read_text(encoding="utf-8"))
+        command = data["hooks"]["PreToolUse"][0]["hooks"][0][
+            "commandWindows"]
+        payloads = (
+            "{not-json",
+            json.dumps({"tool_name": "Bash", "tool_input": {}}),
+            json.dumps([]),
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                result = subprocess.run(
+                    command, cwd=ROOT, shell=True, input=payload,
+                    capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 2,
+                                 result.stdout + result.stderr)
+                self.assertIn("failed closed", result.stderr)
+
 
 class TestAntigravityShimPresent(unittest.TestCase):
     """The Antigravity guard failed open for 13 tool calls on 2026-08-14.
@@ -147,6 +172,81 @@ class TestAntigravityShimPresent(unittest.TestCase):
                 f"Antigravity resolves {rel!r} against {hooks.parent} -> "
                 f"{resolved}, which does not exist. That is exactly the "
                 f"[Errno 2] that left the guard failing open.")
+
+    def test_shim_real_entry_allows_safe_command_and_denies_schema_drift(self):
+        shim = ROOT / ".agents" / "scripts" / "hook_antigravity_pretooluse.py"
+        safe = subprocess.run(
+            [sys.executable, str(shim)], cwd=ROOT,
+            input=json.dumps({"toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "Write-Output safe"},
+            }}), capture_output=True, text=True, timeout=10)
+        self.assertEqual(safe.returncode, 0, safe.stderr)
+        self.assertEqual(json.loads(safe.stdout), {"decision": "allow"})
+
+        malformed = subprocess.run(
+            [sys.executable, str(shim)], cwd=ROOT, input="{not-json",
+            capture_output=True, text=True, timeout=10)
+        self.assertEqual(malformed.returncode, 0, malformed.stderr)
+        decision = json.loads(malformed.stdout)
+        self.assertEqual(decision["decision"], "deny")
+        self.assertIn("failed closed", decision["reason"])
+
+
+class TestAntigravityAdapter(unittest.TestCase):
+    def run_adapter(self, payload: str, dispatch_result=0,
+                    dispatch_error: Exception | None = None) -> dict:
+        def dispatch(_command: str) -> int:
+            if dispatch_error is not None:
+                raise dispatch_error
+            return dispatch_result
+
+        stdout = StringIO()
+        with mock.patch.object(sys, "stdin", StringIO(payload)), \
+             mock.patch.object(antigravity_hook.hook_pretooluse,
+                               "dispatch", side_effect=dispatch), \
+             redirect_stdout(stdout):
+            self.assertEqual(antigravity_hook.main(), 0)
+        return json.loads(stdout.getvalue())
+
+    def test_known_good_bom_payload_is_dispatched(self):
+        payload = "\ufeff" + json.dumps({
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "Write-Output safe"},
+            },
+        })
+        self.assertEqual(self.run_adapter(payload), {"decision": "allow"})
+
+    def test_malformed_or_missing_command_fails_closed(self):
+        payloads = (
+            "{not-json",
+            "[]",
+            json.dumps({}),
+            json.dumps({"toolCall": {"name": "run_command", "args": {}}}),
+            json.dumps({"toolCall": {
+                "name": "run_command", "args": {"CommandLine": "   "}}}),
+            json.dumps({"toolCall": {
+                "name": "other", "args": {"CommandLine": "echo bypass"}}}),
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                result = self.run_adapter(payload)
+                self.assertEqual(result["decision"], "deny")
+                self.assertIn("failed closed", result["reason"])
+
+    def test_dispatcher_block_and_exception_both_deny(self):
+        payload = json.dumps({
+            "toolCall": {
+                "name": "run_command",
+                "args": {"command": "git push origin main"},
+            },
+        })
+        self.assertEqual(self.run_adapter(payload, dispatch_result=2)["decision"],
+                         "deny")
+        failed = self.run_adapter(payload, dispatch_error=RuntimeError("boom"))
+        self.assertEqual(failed["decision"], "deny")
+        self.assertIn("RuntimeError: boom", failed["reason"])
 
 
 if __name__ == "__main__":

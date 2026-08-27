@@ -17,9 +17,9 @@ current. The router reads this before any work; guards read the roots.
 
 ## Orientation files (must exist; create from templates if missing)
 
-- NOW.md: <path into working root>
+- NOW.md: <path into working root; start from `memory/NOW.template.md`>
 - Lessons inbox: <path into working root>
-- Live-state guide / index, if any: <paths>
+- Historical or deep reference docs, if any (lazy; never current state): <paths>
 
 ## Standing authorization grants (mirror of what the user actually granted)
 

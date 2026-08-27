@@ -49,14 +49,20 @@ def validation_log(
         *, requested: int, associated: int, outcomes: list[str],
         checked: int, passed: int, failed: int, skipped: int,
         unable: int, include_summary: bool = True,
-        commandlet_result: int = 0) -> str:
+        commandlet_result: int = 0,
+        assets: list[str] | None = None) -> str:
     lines = [
         "LogContentValidation: Starting to validate "
         f"{requested} assets ({associated} associated objects such as actors)"
     ]
-    for index, outcome in enumerate(outcomes):
-        lines.append(f"AssetCheck: /Game/Test.Asset{index} Validating asset")
-        lines.append(f"AssetCheck: /Game/Test.Asset{index} {outcome}")
+    if assets is None:
+        assets = [f"/Game/Test.Asset{index}"
+                  for index in range(len(outcomes))]
+    if len(assets) != len(outcomes):
+        raise ValueError("assets and outcomes must have the same length")
+    for asset, outcome in zip(assets, outcomes):
+        lines.append(f"AssetCheck: {asset} Validating asset")
+        lines.append(f"AssetCheck: {asset} {outcome}")
     if include_summary:
         lines.append(
             "LogAssetCheck: Files Checked: "
@@ -385,6 +391,41 @@ class TestDataValidationReport(unittest.TestCase):
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(result["invalid"], 1)
 
+    def test_actionable_asset_identities_are_sorted_by_outcome(self):
+        text = validation_log(
+            requested=4,
+            associated=0,
+            outcomes=[
+                "contains invalid data.",
+                "contains valid data, but has warnings.",
+                "has no data validation.",
+                "contains invalid data.",
+            ],
+            assets=[
+                "/Script/Engine.Blueprint'/Game/Zeta.AssetZ'",
+                "/Script/Engine.World'/Game/Warn.AssetW'",
+                "/Script/Engine.DataAsset'/Game/Unable.AssetU'",
+                "/Script/Engine.Blueprint'/Game/Alpha.AssetA'",
+            ],
+            checked=4,
+            passed=1,
+            failed=2,
+            skipped=0,
+            unable=1,
+        )
+        result = er.parse_data_validation_log(text)
+        self.assertEqual(result["invalid_assets"], [
+            "/Script/Engine.Blueprint'/Game/Alpha.AssetA'",
+            "/Script/Engine.Blueprint'/Game/Zeta.AssetZ'",
+        ])
+        self.assertEqual(result["warning_assets"], [
+            "/Script/Engine.World'/Game/Warn.AssetW'",
+        ])
+        self.assertEqual(
+            result["unable_to_validate_assets"], [
+                "/Script/Engine.DataAsset'/Game/Unable.AssetU'",
+            ])
+
     def test_real_commandlet_shape_derives_missing_footer(self):
         text = validation_log(
             requested=4,
@@ -595,12 +636,31 @@ class TestNativeCli(unittest.TestCase):
                 stdout, stderr = io.StringIO(), io.StringIO()
                 with self.subTest(command=command[0]), \
                      patch.object(er, "load_game_config", return_value=empty), \
-                     patch.object(er.cec, "list_processes", return_value=[]), \
+                     patch.object(
+                         er, "require_headless_available",
+                         side_effect=AssertionError("must not be called")), \
                      redirect_stdout(stdout), redirect_stderr(stderr):
                     rc = er.cmd_native(args, args.cmd)
                 self.assertEqual(rc, 0, stderr.getvalue())
                 self.assertIn("no directory created", stdout.getvalue())
                 self.assertFalse(out_dir.exists())
+
+    def test_native_expect_rhi_requires_needs_rhi(self):
+        args = er.build_parser().parse_args([
+            "automation", "Project.Native", "--expect-rhi", "D3D11",
+            "--dry-run",
+        ])
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(
+                er, "require_headless_available",
+                side_effect=AssertionError("must not be called")), \
+             redirect_stdout(stdout), redirect_stderr(stderr):
+            rc = er.cmd_native(args, args.cmd)
+        self.assertEqual(rc, 3)
+        self.assertIn(
+            "--expect-rhi requires --needs-rhi",
+            stdout.getvalue() + stderr.getvalue(),
+        )
 
 
 if __name__ == "__main__":

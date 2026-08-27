@@ -23,6 +23,7 @@ import sys
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -37,6 +38,14 @@ def run(raw: str) -> tuple[int, str]:
     buf = io.StringIO()
     with redirect_stderr(buf):
         rc = hp.dispatch_tool(hp.tool_of(raw))
+    return rc, buf.getvalue()
+
+
+def run_main(raw: str) -> tuple[int, str]:
+    buf = io.StringIO()
+    with mock.patch.object(sys, "stdin", io.StringIO(raw)), \
+         redirect_stderr(buf):
+        rc = hp.main()
     return rc, buf.getvalue()
 
 
@@ -105,6 +114,25 @@ class TestOrdinaryMcpStillAllowed(unittest.TestCase):
                      "mcp__ccd_session__mark_chapter"):
             rc, err = run(payload(name))
             self.assertEqual(rc, 0, f"{name} should pass: {err}")
+
+    def test_valid_nonreserved_mcp_payload_passes_the_real_dispatcher(self):
+        cases = (
+            payload("mcp__unreal-mcp__list_toolsets"),
+            payload("mcp__openclaw_unreal__console_execute",
+                    command="git push is an Unreal console argument"),
+            payload("mcp__example__read", command=7),
+        )
+        for raw in cases:
+            with self.subTest(raw=raw):
+                rc, err = run_main(raw)
+                self.assertEqual(rc, 0, err)
+
+    def test_matched_shell_tools_without_commands_fail_closed(self):
+        for name in ("Bash", "PowerShell", "Monitor"):
+            with self.subTest(name=name):
+                rc, err = run_main(payload(name))
+                self.assertEqual(rc, 2)
+                self.assertIn("failed closed", err)
 
     def test_openclaw_reads_and_play_controls_pass(self):
         for name in (

@@ -128,6 +128,7 @@ class Verdict:
     sentinel_claims_pass: bool
     contradiction: bool
     environment_ok: bool = True
+    citation_blocked: bool = False
     reasons: list[str] = field(default_factory=list)
     evidence: dict = field(default_factory=dict)
 
@@ -148,7 +149,8 @@ class Verdict:
         nothing has not demonstrated it produced anything."""
         return (self.execution == "COMPLETE"
                 and self.output == "PRESENT"
-                and self.environment_ok)
+                and self.environment_ok
+                and not self.citation_blocked)
 
 
 def extract_rhi(text: str) -> str | None:
@@ -232,21 +234,65 @@ def classify_log(
     ]
 
 
-# Values a report's own status field uses to say it did not succeed. A
-# report claiming INCONCLUSIVE is also not a result: `render-a-headless-
-# capture` requires a run whose readiness predicate never went true to
-# report INCONCLUSIVE rather than PASS, so honouring that is the point.
-FAILING_STATUS = {"fail", "failed", "failure", "error", "inconclusive"}
+# A top-level status is a normalized verdict, so accept only the small success
+# vocabulary actually used by the corpus. Nested output status is allowed to
+# be domain-specific when that root verdict says PASS, but known non-results
+# still fail closed. Nested execution has a still tighter contract below:
+# COMPLETE is the sole healthy value measured in current game probes.
+SUCCESS_STATUS = {"pass", "pass_with_warnings", "success", "ok", "complete"}
+FAILING_STATUS = {
+    "fail", "failed", "failure", "error", "inconclusive", "refused",
+    "diagnostic", "incomplete", "unmeasured", "partial", "blocked",
+    "skipped", "started", "running",
+}
+
+
+def _status_is_failure(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    status = value.strip().lower()
+    return (status in FAILING_STATUS
+            or any(status.startswith(f"{word}_")
+                   for word in FAILING_STATUS))
+
+
+def _mapping_failure(data: dict, label: str) -> str | None:
+    status = data.get("status")
+    if _status_is_failure(status):
+        return f"report self-reports {label}status={status!r}"
+    err = data.get("error")
+    if err:
+        return (f"report carries a non-empty {label}'error': "
+                f"{str(err).splitlines()[0][:120]}")
+    errs = data.get("errors")
+    if errs:
+        count = len(errs) if hasattr(errs, "__len__") else 1
+        return (f"report carries {count} non-empty value(s) in "
+                f"{label}'errors'")
+    failures = data.get("failures")
+    if failures:
+        count = len(failures) if hasattr(failures, "__len__") else 1
+        return (f"report carries {count} non-empty value(s) in "
+                f"{label}'failures'")
+    return None
+
+
+def _top_level_status_failure(data: dict) -> str | None:
+    status = data.get("status")
+    if status is None:
+        return None
+    if not isinstance(status, str) or status.strip().lower() not in SUCCESS_STATUS:
+        return f"report self-reports status={status!r}; expected a normalized success status"
+    return None
 
 
 def _self_reported_failure_bytes(path: Path, raw: bytes) -> str | None:
     """Read a JSON artifact's own verdict. Returns a reason, or None.
 
-    Deliberately narrow: only an explicit `status` in FAILING_STATUS, a
-    truthy `error`, or a non-empty `errors` counts. `"error": null` and
-    `"errors": []` are how healthy reports say nothing went wrong, and
-    treating those as failures would make the gate unusable and get it
-    switched off.
+    A present top-level `status` must use the normalized success vocabulary;
+    nested execution must be exactly COMPLETE. A truthy `error` or non-empty
+    `errors`/`failures` also rejects the artifact. `"error": null` and empty
+    lists remain healthy because many reports emit those fields routinely.
     """
     if path.suffix.lower() != ".json":
         return None
@@ -258,15 +304,28 @@ def _self_reported_failure_bytes(path: Path, raw: bytes) -> str | None:
         return f"declared a .json artifact that does not parse: {e}"
     if not isinstance(data, dict):
         return None
-    status = data.get("status")
-    if isinstance(status, str) and status.strip().lower() in FAILING_STATUS:
-        return f'report self-reports status={status!r}'
-    err = data.get("error")
-    if err:
-        return f"report carries a non-empty 'error': {str(err).splitlines()[0][:120]}"
-    errs = data.get("errors")
-    if isinstance(errs, (list, tuple)) and len(errs):
-        return f"report carries {len(errs)} entry/entries in 'errors'"
+    top_level = _top_level_status_failure(data) or _mapping_failure(data, "")
+    if top_level:
+        return top_level
+    # Kurogane's current report contract separates the script's execution
+    # verdict from its output verdict. These are semantic result fields, not a
+    # recursive scan: controls nested elsewhere may intentionally contain
+    # expected failures and must not poison a healthy report.
+    nested_verdict = False
+    for section_name in ("execution", "output"):
+        section = data.get(section_name)
+        if isinstance(section, dict):
+            nested_verdict = True
+            if section_name == "execution" and section.get("status") != "COMPLETE":
+                return ("report self-reports execution.status="
+                        f"{section.get('status')!r}; expected 'COMPLETE'")
+            nested = _mapping_failure(section, f"{section_name}.")
+            if nested:
+                return nested
+    if nested_verdict and not isinstance(data.get("status"), str):
+        return ("report has nested execution/output verdicts but no normalized "
+                "top-level status; domain-specific output labels cannot be "
+                "safely guessed as PASS")
     return None
 
 
@@ -567,6 +626,7 @@ def render(v: Verdict) -> str:
         + ("   <-- DISAGREES WITH THE ENGINE" if v.contradiction else ""),
         f"ENV       : RHI={v.evidence.get('rhi') or 'unstated'}"
         + ("" if v.environment_ok else "   <-- NOT THE ENVIRONMENT REQUESTED"),
+        f"BINDING   : {'diagnostic only' if v.citation_blocked else 'caller-bound'}",
         f"CITABLE   : {'yes' if v.citable else 'NO'}",
         "",
     ]
@@ -577,7 +637,10 @@ def render(v: Verdict) -> str:
 def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(
+        description=(__doc__.split("\n")[0] +
+                     " Standalone use is diagnostic and never citable; use "
+                     "engine_run.py to bind pre-run evidence."))
     ap.add_argument("log", type=Path)
     ap.add_argument("--artifact", type=Path, action="append", default=[],
                     help="path the run was supposed to write; repeatable")
@@ -594,6 +657,14 @@ def main(argv: list[str]) -> int:
     v = verdict_for(a.log, a.artifact, exit_code=a.exit_code, killed=a.killed,
                     expect_rhi=a.expect_rhi,
                     max_blueprint_runtime_errors=a.max_blueprint_runtime_errors)
+    # This after-the-fact CLI has no pre-run snapshot or start-time anchor, so
+    # it cannot prove that an artifact came from the log beside it. Keep it as
+    # a useful diagnostic, but reserve citable sidecars for engine_run, which
+    # captures both bindings before launch.
+    v.citation_blocked = True
+    v.reasons.append(
+        "standalone run_verdict is diagnostic only: it has no pre-run artifact "
+        "baseline or run-start anchor. Use engine_run for a citable result.")
     print(json.dumps(v.as_dict(), indent=2) if a.json else render(v))
     # 0 citable, 1 ran-but-not-citable, 2 did not run cleanly.
     return 0 if v.citable else (1 if v.execution == "COMPLETE" else 2)

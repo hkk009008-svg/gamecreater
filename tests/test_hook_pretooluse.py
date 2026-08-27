@@ -1,7 +1,5 @@
 import io
 import json
-import os
-import shutil
 import subprocess
 import sys
 import unittest
@@ -49,12 +47,9 @@ class TestPushDetection(unittest.TestCase):
 
 class TestPushTargetDir(unittest.TestCase):
     def test_git_c_wins(self):
-        self.assertEqual(hook.push_target_dir("git -C D:/repo push"),
+        self.assertEqual(hook.push_target_dir(
+                          "git -C D:/repo push origin main"),
                           "D:/repo")
-
-    def test_last_cd_wins(self):
-        cmd = "cd /d/a && ls && cd /d/b && git push"
-        self.assertEqual(hook.push_target_dir(cmd), "D:/b")
 
     def test_msys_drive_paths_normalize_for_windows(self):
         # Git-Bash '-C /d/somerepo' must reach the preflight as
@@ -66,22 +61,64 @@ class TestPushTargetDir(unittest.TestCase):
             "D:/somerepo")
         # non-drive POSIX paths pass through untouched
         self.assertEqual(
-            hook.push_target_dir("git -C /tmp/repo push"), "/tmp/repo")
+            hook.push_target_dir("git -C /tmp/repo push origin main"),
+            "/tmp/repo")
 
     def test_git_c_with_spaces_and_quotes(self):
         self.assertEqual(
-            hook.push_target_dir('git -C "D:/My Projects/repo" push'),
+            hook.push_target_dir(
+                'git -C "D:/My Projects/repo" push origin main'),
             "D:/My Projects/repo")
         self.assertEqual(
-            hook.push_target_dir("git -C 'D:/My Projects/repo' push"),
+            hook.push_target_dir(
+                "git -C 'D:/My Projects/repo' push origin main"),
             "D:/My Projects/repo")
 
     def test_multiline_cd_detected(self):
         cmd = "cd /d/somerepo\ngit push origin main"
-        self.assertEqual(hook.push_target_dir(cmd), "D:/somerepo")
+        self.assertEqual(hook.push_target_dir(cmd), ".")
 
     def test_default_is_cwd(self):
         self.assertEqual(hook.push_target_dir("git push"), ".")
+
+
+class TestPushRemoteName(unittest.TestCase):
+    def test_explicit_named_remote(self):
+        self.assertEqual(hook.push_remote_name("git push origin main"),
+                         ("origin", None))
+        self.assertEqual(
+            hook.push_remote_name("git -C D:/repo push --force upstream x"),
+            ("upstream", None))
+
+    def test_implicit_url_and_compound_pushes_fail_closed(self):
+        for command in (
+            "git push",
+            "git push https://github.com/example/public.git main",
+            "cd D:/one && git push origin main",
+            "git push origin main && git push upstream main",
+            "git push --repo=https://github.com/example/public.git main",
+        ):
+            remote, error = hook.push_remote_name(command)
+            self.assertIsNone(remote, command)
+            self.assertTrue(error, command)
+
+    def test_repository_selecting_git_globals_fail_closed(self):
+        commands = (
+            "git -C D:/safe -C D:/other push origin main",
+            "git --git-dir=D:/other/.git push origin main",
+            "git --git-dir D:/other/.git push origin main",
+            "git --work-tree=D:/other push origin main",
+            "git -c remote.origin.pushurl=https://github.com/x/y.git "
+            "push origin main",
+            "git --no-pager push origin main",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertTrue(hook._direct_push_candidate(command))
+                repo, remote, error = hook.push_spec(command)
+                self.assertIsNone(repo)
+                self.assertIsNone(remote)
+                self.assertIn("actual target", error)
 
 
 class TestEditorDetection(unittest.TestCase):
@@ -127,7 +164,7 @@ class TestDispatch(unittest.TestCase):
             return 1
 
         with patch.object(hook.preflight_push, "main", side_effect=fake):
-            rc, err = self._run("git push")
+            rc, err = self._run("git push origin main")
         self.assertEqual(rc, 2)
         self.assertIn("PUSH BLOCKED", err)
         self.assertIn("PUBLIC", err)
@@ -143,7 +180,7 @@ class TestDispatch(unittest.TestCase):
         with patch.object(hook.preflight_push, "main", side_effect=fake):
             rc, err = self._run("git -C /d/somerepo push origin main")
         self.assertEqual(rc, 0)
-        self.assertEqual(seen, [["preflight_push", "D:/somerepo"]])
+        self.assertEqual(seen, [["preflight_push", "D:/somerepo", "origin"]])
         self.assertIn("PRIVATE", err)
 
     def test_stash_push_does_not_invoke_preflight(self):
@@ -165,6 +202,37 @@ class TestDispatch(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("failed closed", err)
 
+    def test_ambiguous_push_is_blocked_before_preflight(self):
+        with patch.object(hook.preflight_push, "main") as mocked:
+            rc, err = self._run(
+                "git push https://github.com/example/public.git main")
+        mocked.assert_not_called()
+        self.assertEqual(rc, 2)
+        self.assertIn("configured remote name", err)
+
+    def test_compound_push_is_blocked_before_preflight(self):
+        with patch.object(hook.preflight_push, "main") as mocked:
+            rc, err = self._run(
+                "git push origin main && git push upstream main")
+        mocked.assert_not_called()
+        self.assertEqual(rc, 2)
+        self.assertIn("exactly one", err)
+
+    def test_target_changing_git_globals_are_blocked_before_preflight(self):
+        commands = (
+            "git -C D:/safe -C D:/other push origin main",
+            "git --git-dir=D:/other/.git push origin main",
+            "git -c remote.origin.pushurl=https://github.com/x/y.git "
+            "push origin main",
+        )
+        for command in commands:
+            with self.subTest(command=command), \
+                 patch.object(hook.preflight_push, "main") as mocked:
+                rc, err = self._run(command)
+                mocked.assert_not_called()
+                self.assertEqual(rc, 2)
+                self.assertIn("actual target", err)
+
     def test_editor_block_reason_is_on_stderr(self):
         def fake(argv):
             print("LAUNCH BLOCKED: editor process(es) running: UnrealEditor.exe")
@@ -185,57 +253,47 @@ class TestDispatch(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
-def find_sh() -> str | None:
-    found = shutil.which("sh")
-    if found:
-        return found
-    if sys.platform == "win32":
-        for cand in [
-            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "sh.exe",
-            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "usr" / "bin" / "sh.exe",
-        ]:
-            if cand.is_file():
-                return str(cand)
-    return None
-
-
 class TestHookWiring(unittest.TestCase):
-    def test_settings_invokes_the_posix_wrapper(self):
+    def _command(self) -> str:
         settings = json.loads(
             (ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        cmd = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-        self.assertIn("run_pretooluse.sh", cmd)
-        self.assertNotIn("hook_pretooluse.py", cmd)
+        return settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
 
-    def test_wrapper_execs_and_does_not_or_chain_interpreters(self):
-        text = (ROOT / "scripts" / "run_pretooluse.sh").read_text(
-            encoding="utf-8")
-        self.assertIn("exec", text)
-        self.assertNotIn("||", text)
+    def test_settings_invokes_the_dispatcher_without_posix_sh(self):
+        cmd = self._command()
+        self.assertIn("hook_pretooluse.py", cmd)
+        self.assertNotIn("run_pretooluse.sh", cmd)
+        self.assertNotIn("sh ", cmd)
 
-    def test_wrapper_allow_path_at_real_entry(self):
-        sh_bin = find_sh()
-        if not sh_bin:
-            self.skipTest("POSIX sh interpreter not available on this host")
+    def test_direct_command_allow_path_at_real_entry(self):
         payload = json.dumps({"tool_input": {"command": "echo hi"}})
         proc = subprocess.run(
-            [sh_bin, str(ROOT / "scripts" / "run_pretooluse.sh")],
-            input=payload, capture_output=True, text=True,
-            env={**os.environ, "CLAUDE_PROJECT_DIR": str(ROOT)})
+            self._command(), shell=True, cwd=ROOT, input=payload,
+            capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
-    def test_wrapper_fails_closed_without_python(self):
+    def test_direct_command_blocks_ambiguous_push_at_real_entry(self):
         payload = json.dumps({"tool_input": {"command": "git push"}})
-        sh_bin = find_sh()
-        if not sh_bin:
-            self.skipTest("POSIX sh interpreter not available on this host")
         proc = subprocess.run(
-            [sh_bin, str(ROOT / "scripts" / "run_pretooluse.sh")],
-            input=payload, capture_output=True, text=True,
-            env={**os.environ, "PATH": "/no-such-bin",
-                 "CLAUDE_PROJECT_DIR": str(ROOT)})
+            self._command(), shell=True, cwd=ROOT, input=payload,
+            capture_output=True, text=True)
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
-        self.assertIn("failed closed", proc.stderr)
+        self.assertIn("PUSH BLOCKED", proc.stderr)
+
+    def test_direct_command_fails_closed_on_schema_drift(self):
+        payloads = (
+            "{not-json",
+            json.dumps({"tool_name": "Bash", "tool_input": {}}),
+            json.dumps([]),
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                proc = subprocess.run(
+                    self._command(), shell=True, cwd=ROOT, input=payload,
+                    capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 2,
+                                 proc.stdout + proc.stderr)
+                self.assertIn("failed closed", proc.stderr)
 
 
 if __name__ == "__main__":

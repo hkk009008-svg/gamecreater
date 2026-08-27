@@ -24,7 +24,8 @@ distill age and entry count. This module exposes the counts it needs.
 
 Usage: python scripts/check_lessons_inbox.py [--repo ROOT --file REL]...
        (no args: the harness inbox, plus the game inbox from GAME.local.md)
-Exit 0: every inbox append-only (or NO_BASELINE). Exit 1: violation.
+Exit 0: every configured inbox append-only (or NO_BASELINE).
+Exit 1: violation, missing/unconfigured inbox, or an unreadable repository.
 """
 
 from __future__ import annotations
@@ -32,11 +33,21 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+
+from game_config import load_game_config
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY_RE = re.compile(r"^-\s+20\d\d-\d\d-\d\d", re.M)
-INBOX_LINE_RE = re.compile(r"Lessons inbox:\s*(\S+)")
+
+
+@dataclass(frozen=True)
+class InboxDiscovery:
+    status: str
+    detail: str
+    repo_root: Path | None = None
+    inbox: Path | None = None
 
 
 def normalize(text: str) -> str:
@@ -88,24 +99,41 @@ def entry_count(text: str) -> int:
     return len(ENTRY_RE.findall(text))
 
 
-def game_inbox() -> tuple[Path, Path] | None:
-    """(repo_root, inbox_path) from GAME.local.md, if configured."""
-    cfg = ROOT / "GAME.local.md"
-    if not cfg.is_file():
-        return None
-    m = INBOX_LINE_RE.search(cfg.read_text(encoding="utf-8",
-                                           errors="replace"))
-    if not m:
-        return None
-    inbox = Path(m.group(1))
+def game_inbox() -> InboxDiscovery:
+    """Discover the configured game inbox, naming every failure state."""
+    requested = ROOT / "GAME.local.md"
+    try:
+        config = load_game_config(requested)
+    except Exception as exc:                                  # noqa: BLE001
+        return InboxDiscovery(
+            "ERROR", f"could not load {requested}: {type(exc).__name__}: {exc}")
+    if not config.source.is_file():
+        return InboxDiscovery(
+            "UNCONFIGURED", f"GAME.local.md not found (looked at {config.source})")
+    if config.lessons is None:
+        return InboxDiscovery(
+            "UNCONFIGURED", f"Lessons inbox is not set in {config.source}")
+
+    inbox = config.lessons
     if not inbox.is_file():
-        return None
-    p = subprocess.run(
-        ["git", "-C", str(inbox.parent), "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, timeout=30)
-    if p.returncode != 0:
-        return None
-    return Path(p.stdout.strip()), inbox
+        return InboxDiscovery(
+            "MISSING", f"configured inbox does not exist: {inbox}", inbox=inbox)
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(inbox.parent), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=30)
+    except Exception as exc:                                  # noqa: BLE001
+        return InboxDiscovery(
+            "ERROR", f"could not find repository for {inbox}: "
+                     f"{type(exc).__name__}: {exc}", inbox=inbox)
+    root = probe.stdout.strip()
+    if probe.returncode != 0 or not root:
+        detail = probe.stderr.strip() or "git rev-parse returned no repository"
+        return InboxDiscovery(
+            "ERROR", f"could not find repository for {inbox}: {detail}",
+            inbox=inbox)
+    return InboxDiscovery(
+        "OK", f"configured by {config.source}", Path(root), inbox)
 
 
 def check_one(repo_root: Path, inbox: Path) -> tuple[str, str, int]:
@@ -118,6 +146,7 @@ def check_one(repo_root: Path, inbox: Path) -> tuple[str, str, int]:
 
 def main(argv: list[str]) -> int:
     pairs: list[tuple[str, Path, Path]] = []
+    worst = 0
     args = argv[1:]
     while args:
         if args[0] == "--repo" and len(args) >= 4 and args[2] == "--file":
@@ -131,16 +160,24 @@ def main(argv: list[str]) -> int:
     if not pairs:
         pairs.append(("harness", ROOT, ROOT / "memory" / "LESSONS.md"))
         game = game_inbox()
-        if game:
-            pairs.append(("game", game[0], game[1]))
+        if game.status == "OK":
+            assert game.repo_root is not None and game.inbox is not None
+            pairs.append(("game", game.repo_root, game.inbox))
+        else:
+            print(f"game: {game.status} ({game.detail})")
+            worst = max(worst, 1)
 
-    worst = 0
     for label, root, inbox in pairs:
         if not inbox.is_file():
             print(f"{label}: MISSING at {inbox}")
             worst = max(worst, 1)
             continue
-        verdict, detail, n = check_one(root, inbox)
+        try:
+            verdict, detail, n = check_one(root, inbox)
+        except Exception as exc:                               # noqa: BLE001
+            print(f"{label}: ERROR ({type(exc).__name__}: {exc})")
+            worst = max(worst, 1)
+            continue
         print(f"{label}: {verdict} ({n} entries; {detail.splitlines()[0]})")
         if verdict == "VIOLATION":
             print(detail)

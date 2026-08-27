@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/scripts/session_start.py\""
+            "command": "python -c \"import os, pathlib, runpy; root = pathlib.Path(os.environ.get('CLAUDE_PROJECT_DIR', '.')); runpy.run_path(str(root / 'scripts' / 'session_start.py'), run_name='__main__')\""
           }
         ]
       }
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/scripts/run_pretooluse.sh\""
+            "command": "python -c \"import os, pathlib, runpy; root = pathlib.Path(os.environ.get('CLAUDE_PROJECT_DIR', '.')); runpy.run_path(str(root / 'scripts' / 'hook_pretooluse.py'), run_name='__main__')\""
           }
         ]
       }

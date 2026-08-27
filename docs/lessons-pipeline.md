@@ -48,10 +48,16 @@ code wins — the fix waits for the distill, when it can be judged cold.
 ## Stage 3 — verify the corpus stays loadable
 
 After any distill: `sync_skills.py --check` (surface matches canonical),
-and the scrub gate in strict mode:
+and the scrub gate in strict mode. In PowerShell:
 
-    SCRUB_REQUIRE_LOCAL_TERMS=1 SCRUB_REQUIRE_TOTAL_SCAN=1 \
-        python scripts/scrub_check.py
+    $env:SCRUB_REQUIRE_LOCAL_TERMS = '1'
+    $env:SCRUB_REQUIRE_TOTAL_SCAN = '1'
+    python scripts/scrub_check.py
+    Remove-Item Env:SCRUB_REQUIRE_LOCAL_TERMS, Env:SCRUB_REQUIRE_TOTAL_SCAN
+
+In a POSIX shell:
+
+    SCRUB_REQUIRE_LOCAL_TERMS=1 SCRUB_REQUIRE_TOTAL_SCAN=1 python scripts/scrub_check.py
 
 Strict mode is what makes "clean" mean it: `SCRUB_REQUIRE_LOCAL_TERMS=1`
 refuses (exit 2) unless the project-noun tier actually loaded, and

@@ -55,10 +55,13 @@ def verdict(visibility: str | None, name: str | None,
             grant_path: str = "public-grant.txt") -> tuple[bool, str]:
     """Pure decision core, testable without gh."""
     if visibility == "PRIVATE":
-        return True, f"push allowed: {name or 'repo'} is PRIVATE"
+        return True, (f"visibility preflight passed: {name or 'repo'} is "
+                      "PRIVATE; the push still requires per-act user authorization")
     if granted(name, grant_text):
-        return True, (f"push allowed: {name} is {visibility or 'UNKNOWN'} "
-                      f"but explicitly granted in {grant_path}")
+        return True, (f"visibility preflight passed: {name} is "
+                      f"{visibility or 'UNKNOWN'} and is explicitly granted in "
+                      f"{grant_path}; the push still requires per-act user "
+                      "authorization")
     if visibility is None:
         return False, (
             "PUSH BLOCKED: could not verify repo visibility (gh repo view "
@@ -73,17 +76,32 @@ def verdict(visibility: str | None, name: str | None,
         f"'owner/name' line to {grant_path} and rerun.")
 
 
-def repo_name_from_git(repo_dir: str) -> str | None:
-    """Fallback when gh is offline: parse owner/name from remote.origin.url."""
+def repo_name_from_url(raw: str) -> str | None:
+    """Parse owner/name only when the destination is actually github.com."""
+    raw = raw.strip()
+    patterns = (
+        r"^(?:https?|ssh)://(?:[^/@]+@)?github\.com/"
+        r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$",
+        r"^(?:[^@/:]+@)?github\.com:"
+        r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$",
+    )
+    for pattern in patterns:
+        match = re.fullmatch(pattern, raw, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def repo_name_from_git(repo_dir: str, remote: str = "origin") -> str | None:
+    """Resolve one exact named push destination; ambiguity fails closed."""
     try:
         proc = subprocess.run(
-            ["git", "config", "--get", "remote.origin.url"],
+            ["git", "remote", "get-url", "--push", "--all", remote],
             cwd=repo_dir, capture_output=True, text=True, timeout=10)
-        if proc.returncode == 0 and proc.stdout.strip():
-            raw = proc.stdout.strip()
-            m = re.search(r"[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$", raw)
-            if m:
-                return m.group(1)
+        destinations = [line.strip() for line in proc.stdout.splitlines()
+                        if line.strip()]
+        if proc.returncode == 0 and len(destinations) == 1:
+            return repo_name_from_url(destinations[0])
     except (OSError, subprocess.TimeoutExpired):
         pass
     return None
@@ -93,16 +111,25 @@ def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
     repo_dir = argv[1] if len(argv) > 1 else "."
+    remote = argv[2] if len(argv) > 2 else "origin"
+    target_name = repo_name_from_git(repo_dir, remote)
+    if not target_name:
+        print(f"PUSH BLOCKED: could not resolve named push remote {remote!r} "
+              f"in {repo_dir!r} to an owner/repo identity.")
+        return 1
     try:
         proc = subprocess.run(
-            ["gh", "repo", "view", "--json", "visibility,nameWithOwner"],
+            ["gh", "repo", "view", target_name,
+             "--json", "visibility,nameWithOwner"],
             cwd=repo_dir, capture_output=True, text=True, timeout=30)
         raw = proc.stdout if proc.returncode == 0 else ""
     except (OSError, subprocess.TimeoutExpired):
         raw = ""
     vis, name = parse_gh_view(raw)
-    if not name:
-        name = repo_name_from_git(repo_dir)
+    if name and name.lower() != target_name.lower():
+        vis, name = None, target_name
+    elif not name:
+        name = target_name
     grant_file = resolve_gitignored(GRANT_FILE, cwd=GRANT_FILE.parent)
     if grant_file.is_file():
         grant_text = grant_file.read_text(encoding="utf-8")

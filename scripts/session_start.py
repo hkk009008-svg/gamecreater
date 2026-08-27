@@ -69,13 +69,29 @@ def read(p: Path) -> str:
         return ""
 
 
-def git(args: list[str], cwd: Path) -> str:
+def git_result(args: list[str], cwd: Path) -> tuple[bool, str]:
+    """Run one local Git probe without turning failure into an empty value."""
     try:
-        r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
-                           text=True, timeout=8)
-        return r.stdout.strip() if r.returncode == 0 else ""
+        result = subprocess.run(
+            ["git", *args], cwd=str(cwd), capture_output=True,
+            text=True, timeout=8,
+        )
     except Exception:
-        return ""
+        return False, ""
+    return result.returncode == 0, result.stdout.strip()
+
+
+def run_block(label: str, function, *args, default=None):
+    """Run one orientation block; a broken probe must not hide later blocks."""
+    try:
+        return function(*args)
+    except SystemExit as exc:
+        warn(f"{label} probe exited unexpectedly ({exc.code!r}); "
+             "orientation continued without that measurement")
+    except Exception as exc:                                  # noqa: BLE001
+        warn(f"{label} probe failed ({type(exc).__name__}: {exc}); "
+             "orientation continued without that measurement")
+    return default
 
 
 def days_since(d: str) -> int | None:
@@ -129,7 +145,8 @@ def game_binding() -> dict:
 def now_block(g: dict) -> None:
     path = Path(g.get("now", "")) if g.get("now") else None
     if not path or not path.is_file():
-        warn("NOW.md not found - a session that starts without it starts blind")
+        warn("NOW.md not found - create it from memory/NOW.template.md; a "
+             "session that starts without it starts blind")
         return
     txt = read(path)
     mtime = date.fromtimestamp(path.stat().st_mtime)
@@ -157,7 +174,10 @@ def now_block(g: dict) -> None:
         if len(body) > 4:
             out(f"    ... (+{len(body) - 4} more lines in NOW.md)")
 
-    # the open register, counted by the tier heading it sits under
+    # The open register, counted by the tier heading it sits under. Register
+    # labels are intentionally opaque: a useful ID such as KG-A2B-PLAYTEST is
+    # no less valid than KG-CONTACT-1. Prefer the bold label used by current
+    # NOW files, while retaining the old unbolded form.
     tiers: dict[str, list[str]] = {}
     cur = None
     for ln in txt.splitlines():
@@ -165,9 +185,13 @@ def now_block(g: dict) -> None:
         if h:
             cur = h.group(1).strip()
             continue
-        item = re.match(r"^-\s+([A-Z]{2,}-[A-Z0-9]+-\d+)", ln)
-        if item and cur:
-            tiers.setdefault(cur, []).append(item.group(1))
+        bold_item = re.match(r"^-\s+\*\*([^*]+)\*\*", ln)
+        plain_item = re.match(
+            r"^-\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\b", ln)
+        label = (bold_item.group(1).strip() if bold_item else
+                 plain_item.group(1) if plain_item else None)
+        if label and cur:
+            tiers.setdefault(cur, []).append(label)
     if tiers:
         out("  Open register:")
         for tier, ids in tiers.items():
@@ -238,29 +262,68 @@ def repo_block(g: dict) -> None:
     repos = [("gamecreater", ROOT)]
     for k in ("working", "project"):
         if g.get(k):
-            repos.append((Path(g[k]).name, Path(g[k])))
+            configured = Path(g[k])
+            path = (configured.parent
+                    if configured.suffix.lower() == ".uproject"
+                    else configured)
+            repos.append((path.name, path))
     for label, path in repos:
-        if not (path / ".git").exists():
+        is_repo, inside = git_result(
+            ["rev-parse", "--is-inside-work-tree"], path)
+        if not is_repo or inside.lower() != "true":
+            out(f"  {label}: GIT WORKTREE UNKNOWN ({path})")
+            warn(f"{label} Git worktree state could not be measured")
             continue
-        branch = git(["rev-parse", "--abbrev-ref", "HEAD"], path) or "?"
-        counts = git(["rev-list", "--left-right", "--count",
-                      f"origin/{branch}...HEAD"], path)
+
+        branch_ok, branch = git_result(
+            ["rev-parse", "--abbrev-ref", "HEAD"], path)
+        if not branch_ok or not branch:
+            branch = "?"
+        elif branch == "HEAD":
+            commit_ok, commit = git_result(
+                ["rev-parse", "--short", "HEAD"], path)
+            branch = f"detached:{commit}" if commit_ok and commit else "detached"
+
+        status_ok, status = git_result(
+            ["status", "--porcelain", "--untracked-files=all"], path)
+        if status_ok:
+            dirty = len([line for line in status.splitlines() if line.strip()])
+            cleanliness = f"cleanliness {'clean' if dirty == 0 else f'{dirty} dirty'}"
+        else:
+            cleanliness = "cleanliness UNKNOWN"
+            warn(f"{label} Git cleanliness could not be measured")
+
+        upstream_ok, upstream = git_result(
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name",
+             "@{upstream}"], path)
         ahead = behind = None
-        if counts and "\t" in counts:
-            behind, ahead = (int(x) for x in counts.split("\t")[:2])
-        dirty = len([ln for ln in git(
-            ["status", "--porcelain", "--untracked-files=all"], path
-        ).splitlines() if ln.strip()])
-        bits = [f"{label}@{branch}"]
-        if ahead:
-            bits.append(f"{ahead} UNPUSHED")
-        if behind:
-            bits.append(f"{behind} behind")
-        if dirty:
-            bits.append(f"{dirty} dirty")
-        if not ahead and not behind and not dirty:
-            bits.append("clean, in sync")
-        out("  " + "  ".join(bits))
+        if not upstream_ok or not upstream:
+            tracking = "tracking UNCONFIGURED"
+        else:
+            compare_ok, counts = git_result(
+                ["rev-list", "--left-right", "--count",
+                 f"{upstream}...HEAD"], path)
+            fields = counts.split()
+            if compare_ok and len(fields) == 2:
+                try:
+                    behind, ahead = (int(value) for value in fields)
+                except ValueError:
+                    behind = ahead = None
+            if ahead is None or behind is None:
+                tracking = f"tracking {upstream} UNKNOWN"
+                warn(f"{label} tracking comparison against {upstream} "
+                     "could not be measured")
+            elif ahead == 0 and behind == 0:
+                tracking = f"tracking {upstream} in sync"
+            else:
+                state = []
+                if ahead:
+                    state.append(f"{ahead} UNPUSHED")
+                if behind:
+                    state.append(f"{behind} behind")
+                tracking = f"tracking {upstream} " + ", ".join(state)
+
+        out(f"  {label}@{branch}  {cleanliness}  {tracking}")
         if ahead:
             warn(f"{label} has {ahead} unpushed commit(s) - the work exists "
                  f"on one disk only")
@@ -381,22 +444,22 @@ def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="backslashreplace")
-    g = game_binding()
+    g = run_block("game binding", game_binding, default={}) or {}
     out("=== SESSION ORIENTATION (measured, not recalled) ===")
     if g:
         out(f"Game: {g.get('name', '?')} [{g.get('slug', '?')}]  "
             f"working={g.get('working', '?')}  project={g.get('project', '?')}")
     out()
-    now_block(g)
+    run_block("NOW", now_block, g)
     out()
-    inbox_block(g)
+    run_block("lessons inbox", inbox_block, g)
     out()
     out("Repos:")
-    repo_block(g)
+    run_block("repository", repo_block, g)
     out()
-    guard_block()
-    engine_block()
-    skills_block()
+    run_block("guard", guard_block)
+    run_block("engine", engine_block)
+    run_block("skills", skills_block)
     if WARN:
         out()
         out(f"--- {len(WARN)} THING(S) THAT CONTRADICT THE DEFAULT ASSUMPTION ---")

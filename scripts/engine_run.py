@@ -32,6 +32,7 @@ not a clobber.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -40,6 +41,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -65,6 +67,134 @@ DEFAULT_WALL_S = 1800
 POLL_S = 2.0
 
 
+def _default_launch_lease_path() -> Path:
+    """One lock for this Windows user, independent of repo or checkout."""
+    base = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir())
+    return base / "gamecreater" / "unreal-supervisor-v1.lock"
+
+
+LAUNCH_LEASE_PATH = _default_launch_lease_path()
+
+
+class LaunchLeaseBusy(RuntimeError):
+    """Another supervisor owns the exclusive Unreal launch lease."""
+
+    def __init__(self, path: Path, owner: dict | None):
+        self.path = path
+        self.owner = owner
+        if owner:
+            pid = owner.get("pid", "unknown")
+            started = owner.get("started_utc", "unknown")
+            command = owner.get("command_line", owner.get("command", "unknown"))
+            detail = (f"owner PID {pid}, lease start {started}, "
+                      f"command {command}")
+        else:
+            detail = "owner metadata was not readable"
+        super().__init__(
+            f"another supervised Unreal launch owns {path}; {detail}")
+
+
+def _lock_file_nonblocking(stream) -> None:
+    stream.seek(0)
+    if os.name == "nt":
+        import msvcrt  # noqa: PLC0415
+        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl  # noqa: PLC0415
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_file(stream) -> None:
+    stream.seek(0)
+    if os.name == "nt":
+        import msvcrt  # noqa: PLC0415
+        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl  # noqa: PLC0415
+        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def read_launch_owner(path: Path) -> dict | None:
+    """Read metadata stored after the one-byte OS lock range."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(1)
+            value = json.loads(stream.read().decode("utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+
+
+class LaunchLease:
+    """Cross-process lease released by close or automatically at exit."""
+
+    def __init__(self, path: Path, stream, owner: dict):
+        self.path = path
+        self._stream = stream
+        self.owner = owner
+
+    @classmethod
+    def acquire(cls, command: list[str], *,
+                path: Path = LAUNCH_LEASE_PATH) -> "LaunchLease":
+        path = path.resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        stream = os.fdopen(descriptor, "r+b", buffering=0)
+        try:
+            # msvcrt.locking cannot lock beyond an empty file. Seeding this
+            # byte before the lock is harmless; the protected metadata starts
+            # at byte one.
+            if os.fstat(stream.fileno()).st_size == 0:
+                stream.write(b"\n")
+                stream.flush()
+            try:
+                _lock_file_nonblocking(stream)
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
+                owner = read_launch_owner(path)
+                stream.close()
+                raise LaunchLeaseBusy(path, owner) from None
+
+            owner = {
+                "pid": os.getpid(),
+                "started_utc": datetime.now(timezone.utc).isoformat(
+                    timespec="milliseconds"),
+                "command": [str(part) for part in command],
+                "command_line": subprocess.list2cmdline(
+                    [str(part) for part in command]),
+            }
+            encoded = json.dumps(owner, sort_keys=True).encode("utf-8")
+            stream.seek(1)
+            stream.write(encoded)
+            stream.truncate()
+            stream.flush()
+            os.fsync(stream.fileno())
+            return cls(path, stream, owner)
+        except BaseException:
+            if not stream.closed:
+                stream.close()
+            raise
+
+    def release(self) -> None:
+        if self._stream.closed:
+            return
+        try:
+            _unlock_file(self._stream)
+        finally:
+            self._stream.close()
+
+
+def acquire_launch_lease(command: list[str], *,
+                         path: Path = LAUNCH_LEASE_PATH) -> LaunchLease:
+    return LaunchLease.acquire(command, path=path)
+
+
+def fresh_run_stamp() -> str:
+    """Subsecond evidence identity; concurrent preflights do not collide."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+
+
 # --- mode ---------------------------------------------------------------
 
 @dataclass
@@ -86,18 +216,10 @@ def read_mode() -> Mode:
 
 
 def mcp_endpoint() -> tuple[str, int, str]:
-    """Read host/port/path from .mcp.json so the checker cannot drift from
-    the client config. Falls back to the plugin defaults."""
-    host, port, path = "127.0.0.1", 8000, "/mcp"
-    try:
-        cfg = json.loads(MCP_CONFIG.read_text(encoding="utf-8"))
-        url = cfg["mcpServers"]["unreal-mcp"]["url"]
-        m = re.match(r"https?://([^:/]+):(\d+)(/.*)?$", url)
-        if m:
-            host, port, path = m.group(1), int(m.group(2)), m.group(3) or "/"
-    except Exception:
-        pass
-    return host, port, path
+    """Use the same validated internal endpoint parser as the MCP client."""
+    import mcp_client  # noqa: PLC0415
+    return mcp_client.endpoint_parts(
+        mcp_client.endpoint_from_config(MCP_CONFIG))
 
 
 def port_open(host: str, port: int, timeout: float = 1.5) -> bool:
@@ -120,7 +242,12 @@ def cmd_epic_mcp_check() -> int:
     settings = ((config.project_dir / "Saved" / "Config" / "WindowsEditor" /
                  "EditorPerProjectUserSettings.ini")
                 if config.project_dir else "EditorPerProjectUserSettings.ini")
-    host, port, path = mcp_endpoint()
+    try:
+        host, port, path = mcp_endpoint()
+    except Exception as exc:  # malformed present config is not "plugin default"
+        print("Epic MCP endpoint configuration: FAIL")
+        print(f"  {type(exc).__name__}: {exc}")
+        return 7
     listening = port_open(host, port)
 
     # An open port proves a listener, not a protocol. Only the handshake
@@ -239,6 +366,13 @@ def require_headless_available() -> str | None:
     return None
 
 
+def validate_rhi_intent(*, needs_rhi: bool,
+                        expect_rhi: str | None) -> None:
+    """An asserted RHI is meaningful only for a declared rendering run."""
+    if expect_rhi is not None and not needs_rhi:
+        raise IntentError("--expect-rhi requires --needs-rhi")
+
+
 def build_command(engine: Path, uproject: Path, script: Path, log: Path,
                   *, needs_rhi: bool, real_game: bool = False,
                   extra: list[str] | None = None) -> list[str]:
@@ -254,6 +388,10 @@ def build_command(engine: Path, uproject: Path, script: Path, log: Path,
         raise IntentError(
             "-nullrhi with needs_rhi=True cannot produce one pixel. "
             "-nullrhi is not a window-suppression flag; -RenderOffscreen is.")
+    if not needs_rhi and "-renderoffscreen" in extra_lower:
+        raise IntentError(
+            "-RenderOffscreen requires needs_rhi=True so the run positively "
+            "declares and verifies its rendering intent")
     if "-game" in extra_lower and not real_game:
         raise IntentError(
             "-game requires --real-game so the script uses the measured "
@@ -275,6 +413,8 @@ def build_command(engine: Path, uproject: Path, script: Path, log: Path,
     cmd = [str(exe), str(uproject), *BASE_FLAGS]
     if needs_rhi and "-renderoffscreen" not in extra_lower:
         cmd.append("-RenderOffscreen")
+    elif not needs_rhi and "-nullrhi" not in extra_lower:
+        cmd.append("-nullrhi")
     if real_game and "-game" not in extra_lower:
         cmd.append("-game")
     cmd += extra
@@ -446,6 +586,18 @@ VALIDATION_OUTCOMES = {
 }
 
 
+def validation_outcome_assets(text: str) -> dict[str, list[str]]:
+    """Return the asset identity attached to every terminal AssetCheck line."""
+    return {
+        key: sorted(re.findall(
+            rf"^AssetCheck:\s+(.+?)\s+{re.escape(phrase)}\s*$",
+            text,
+            re.MULTILINE,
+        ))
+        for key, phrase in VALIDATION_OUTCOMES.items()
+    }
+
+
 def parse_data_validation_log(text: str) -> dict:
     """Parse and cross-check UE 5.8's English Data Validation output."""
     starts = VALIDATION_START_RE.findall(text)
@@ -467,11 +619,8 @@ def parse_data_validation_log(text: str) -> dict:
         raise NativeResultError(
             "Data Validation requested zero assets; an empty scan is not a pass")
     attempted = len(VALIDATION_ATTEMPT_RE.findall(text))
-    outcomes = {
-        key: len(re.findall(
-            rf"^AssetCheck:\s+.*{re.escape(phrase)}\s*$", text, re.MULTILINE))
-        for key, phrase in VALIDATION_OUTCOMES.items()
-    }
+    outcome_assets = validation_outcome_assets(text)
+    outcomes = {key: len(assets) for key, assets in outcome_assets.items()}
     # The shorter valid phrase is not a substring of the warning phrase due
     # to the comma, so these counts remain disjoint.
     processed = sum(outcomes.values())
@@ -546,6 +695,9 @@ def parse_data_validation_log(text: str) -> dict:
         "failed": failed,
         "skipped": skipped,
         **outcomes,
+        "invalid_assets": outcome_assets["invalid"],
+        "warning_assets": outcome_assets["valid_with_warnings"],
+        "unable_to_validate_assets": outcome_assets["unable_to_validate"],
         "status": status,
     }
 
@@ -569,7 +721,8 @@ def kill_tree(proc: subprocess.Popen) -> None:
 
 
 def supervise(cmd: list[str], log: Path, *, stall_s: int, wall_s: int,
-              on_tick=None) -> tuple[int | None, str | None, float]:
+              on_tick=None, env: dict[str, str] | None = None
+              ) -> tuple[int | None, str | None, float]:
     """Run cmd under two independent timers.
 
     A wall-clock timeout alone cannot tell a slow run from a hung one; a
@@ -579,7 +732,7 @@ def supervise(cmd: list[str], log: Path, *, stall_s: int, wall_s: int,
     """
     start = time.monotonic()
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
+                            stderr=subprocess.DEVNULL, env=env)
     last_size, last_growth = -1, start
     killed: str | None = None
 
@@ -750,7 +903,9 @@ SENSITIVE_ENV_KEY_RE = re.compile(
     r"PRIVATE_?KEY|SECRET|SESSION|SIGNING|TOKEN)(?:_|$)", re.IGNORECASE)
 
 
-def project_environment(script: Path) -> dict[str, str]:
+def project_environment(script: Path,
+                        environment: dict[str, str] | None = None
+                        ) -> dict[str, str]:
     """Record only project variables the target script names literally.
 
     A prefix-wide environment dump can serialize an unrelated future token
@@ -762,14 +917,15 @@ def project_environment(script: Path) -> dict[str, str]:
         source = script.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return {}
+    source_env = os.environ if environment is None else environment
     names = sorted(set(PROJECT_ENV_RE.findall(source)))
     recorded: dict[str, str] = {}
     for name in names:
-        if name not in os.environ:
+        if name not in source_env:
             continue
         recorded[name] = (
             "<redacted>" if SENSITIVE_ENV_KEY_RE.search(name)
-            else os.environ[name]
+            else source_env[name]
         )
     return recorded
 
@@ -821,17 +977,27 @@ def bound_artifact_records(v: run_verdict.Verdict,
     return records
 
 
-def cmd_headless(a: argparse.Namespace) -> int:
+def child_environment(artifacts: list[Path]) -> dict[str, str]:
+    """Expose one declared output path to the probe without global env setup."""
+    env = os.environ.copy()
+    env.pop("ENGINE_RUN_ARTIFACT", None)
+    if len(artifacts) == 1:
+        env["ENGINE_RUN_ARTIFACT"] = str(artifacts[0])
+    return env
+
+
+def _cmd_headless_impl(a: argparse.Namespace) -> int:
     # argparse does not route dash-prefixed values through the trailing
     # ``nargs='*'`` positional under this subparser (even after ``--``).
     # Engine flags are, by definition, dash-prefixed, so provide an explicit
     # repeatable option. Keep the positional for backward-compatible plain
     # values and combine both in their declared order groups.
     extra_flags = [*a.extra, *getattr(a, "extra_flag", [])]
-
-    refusal = require_headless_available()
-    if refusal:
-        print(f"REFUSED: {refusal}", file=sys.stderr)
+    try:
+        validate_rhi_intent(needs_rhi=a.needs_rhi,
+                            expect_rhi=a.expect_rhi)
+    except IntentError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
         return 3
 
     script = a.script.resolve()
@@ -841,7 +1007,7 @@ def cmd_headless(a: argparse.Namespace) -> int:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 3
     artifacts = [p.resolve() for p in a.artifact]
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = fresh_run_stamp()
     out_dir = (a.out_dir or default_run_root(uproject)).resolve()
     base = f"{script.stem}-{stamp}"
     log = a.log.resolve() if a.log else (out_dir / f"{base}.log")
@@ -873,6 +1039,10 @@ def cmd_headless(a: argparse.Namespace) -> int:
     if a.dry_run:
         print("\n--dry-run: nothing launched.")
         return 0
+    refusal = require_headless_available()
+    if refusal:
+        print(f"REFUSED: {refusal}", file=sys.stderr)
+        return 3
     log.parent.mkdir(parents=True, exist_ok=True)
     print()
 
@@ -903,8 +1073,10 @@ def cmd_headless(a: argparse.Namespace) -> int:
         return 3
     t0_ns = time.time_ns()
     t0 = t0_ns / 1_000_000_000
-    rc, killed, elapsed = supervise(cmd, log, stall_s=a.stall, wall_s=a.wall,
-                                    on_tick=tick)
+    run_env = child_environment(artifacts)
+    rc, killed, elapsed = supervise(
+        cmd, log, stall_s=a.stall, wall_s=a.wall, on_tick=tick,
+        env=run_env)
     print()
 
     # A run declaring it needs pixels must prove an RHI came up, positively.
@@ -920,7 +1092,7 @@ def cmd_headless(a: argparse.Namespace) -> int:
     capture_enabled = a.needs_rhi or any(
         p.suffix.lower() in {".png", ".exr", ".bmp", ".jpg", ".jpeg"}
         for p in artifacts)
-    project_env = project_environment(script)
+    project_env = project_environment(script, run_env)
 
     payload = {
         "schema": "engine-run-sidecar-v2",
@@ -941,7 +1113,7 @@ def cmd_headless(a: argparse.Namespace) -> int:
         # Fixed, declared environment tuple. Do not dump the whole process
         # environment into evidence that may later be shared.
         "environment": {
-            k: os.environ.get(k) for k in (
+            k: run_env.get(k) for k in (
                 "PYTHONHASHSEED", "PYTHONDONTWRITEBYTECODE",
                 "OMP_NUM_THREADS", "MKL_NUM_THREADS")
         },
@@ -975,6 +1147,41 @@ def cmd_headless(a: argparse.Namespace) -> int:
         print(f"WATCHDOG: killed on {killed} after {elapsed:.0f}s. Without "
               f"this the process would still be holding the editor lock.")
     return 0 if v.citable else (1 if v.execution == "COMPLETE" else 2)
+
+
+def _lease_command(a: argparse.Namespace, operation: str) -> list[str]:
+    supplied = getattr(a, "_supervisor_command", None)
+    if supplied:
+        return [str(part) for part in supplied]
+    command = [sys.executable, str(Path(__file__).resolve()), operation]
+    if operation == "headless":
+        command.append(str(a.script))
+    elif operation == "automation":
+        command.append(str(a.selector))
+    return command
+
+
+def _run_with_launch_lease(command: list[str], action) -> int:
+    try:
+        lease = acquire_launch_lease(command)
+    except LaunchLeaseBusy as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 3
+    except OSError as exc:
+        print(f"REFUSED: could not acquire Unreal launch lease: {exc}",
+              file=sys.stderr)
+        return 3
+    try:
+        return action()
+    finally:
+        lease.release()
+
+
+def cmd_headless(a: argparse.Namespace) -> int:
+    if a.dry_run:
+        return _cmd_headless_impl(a)
+    return _run_with_launch_lease(
+        _lease_command(a, "headless"), lambda: _cmd_headless_impl(a))
 
 
 def _native_result(operation: str, log: Path, artifact: Path,
@@ -1064,10 +1271,14 @@ def reconcile_automation_execution(
         "path does not write the ordinary 'Log file closed' marker")
 
 
-def cmd_native(a: argparse.Namespace, operation: str) -> int:
-    refusal = require_headless_available()
-    if refusal:
-        print(f"REFUSED: {refusal}", file=sys.stderr)
+def _cmd_native_impl(a: argparse.Namespace, operation: str) -> int:
+    try:
+        validate_rhi_intent(
+            needs_rhi=getattr(a, "needs_rhi", False),
+            expect_rhi=getattr(a, "expect_rhi", None),
+        )
+    except IntentError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
         return 3
     try:
         engine, uproject = configured_engine_project(a.engine, a.uproject)
@@ -1075,7 +1286,7 @@ def cmd_native(a: argparse.Namespace, operation: str) -> int:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 3
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = fresh_run_stamp()
     root = (a.out_dir or default_run_root(uproject)).resolve()
     run_dir = root / f"{operation}-{stamp}"
     log = run_dir / "engine.log"
@@ -1107,6 +1318,10 @@ def cmd_native(a: argparse.Namespace, operation: str) -> int:
     if a.dry_run:
         print("\n--dry-run: nothing launched and no directory created.")
         return 0
+    refusal = require_headless_available()
+    if refusal:
+        print(f"REFUSED: {refusal}", file=sys.stderr)
+        return 3
     print()
 
     root.mkdir(parents=True, exist_ok=True)
@@ -1202,6 +1417,15 @@ def cmd_native(a: argparse.Namespace, operation: str) -> int:
         1 if v.execution == "COMPLETE" else 2)
 
 
+def cmd_native(a: argparse.Namespace, operation: str) -> int:
+    if a.dry_run:
+        return _cmd_native_impl(a, operation)
+    return _run_with_launch_lease(
+        _lease_command(a, operation),
+        lambda: _cmd_native_impl(a, operation),
+    )
+
+
 # --- cli -----------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1225,8 +1449,9 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--out-dir", type=Path, default=None)
     h.add_argument("--artifact", type=Path, action="append", default=[],
                    help="path this run must write; the OUTPUT verdict gates "
-                        "on it. Repeatable. Omitting it means the run gates "
-                        "on nothing.")
+                        "on it. With exactly one path, the child also receives "
+                        "ENGINE_RUN_ARTIFACT. Repeatable. Omitting it makes "
+                        "the run diagnostic-only and non-citable.")
     h.add_argument("--needs-rhi", action="store_true",
                    help="this run renders; adds -RenderOffscreen, refuses "
                         "-nullrhi, and asserts an RHI actually initialised")
@@ -1246,7 +1471,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "Use the equals form, e.g. "
                         "--extra-flag=-nullrhi")
     h.add_argument("extra", nargs="*", default=[],
-                   help="extra engine flags, after --")
+                   help="legacy plain, non-option extras only; pass "
+                        "dash-prefixed Unreal flags with --extra-flag=VALUE")
 
     def add_native_common(parser: argparse.ArgumentParser, *, rhi: bool) -> None:
         parser.add_argument("--engine", type=Path, default=None,
@@ -1283,6 +1509,7 @@ def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
     a = build_parser().parse_args(argv[1:])
+    a._supervisor_command = [sys.executable, *map(str, argv)]
     if a.cmd == "mode":
         return cmd_mode()
     if a.cmd == "epic-mcp-check":

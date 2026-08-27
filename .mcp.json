@@ -1,5 +1,5 @@
 {
-  "$comment": "OPTIONAL: Epic's ModelContextProtocol HTTP surface, served by a running Unreal Editor. This is separate from Codex's OpenClaw stdio live-editor bridge and is not required for OpenClaw.",
+  "$comment": "OPTIONAL INTERNAL ENDPOINT DESCRIPTOR read by gamecreater's Python helpers. It does not register a Codex MCP server. Epic's ModelContextProtocol HTTP surface is served by a running Unreal Editor and is separate from Codex's OpenClaw stdio live-editor bridge.",
   "$usage": "Nothing in this file starts Unreal. Enable Epic's ModelContextProtocol plugin, open the configured project, then run `python scripts/engine_run.py epic-mcp-check`. While any editor is open, supervised headless runs remain blocked.",
   "$transport": "Loopback HTTP at Epic's default http://127.0.0.1:8000/mcp endpoint. If the editor plugin uses another address, update both that setting and this URL.",
   "mcpServers": {
