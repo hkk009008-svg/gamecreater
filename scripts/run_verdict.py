@@ -251,7 +251,9 @@ def _self_reported_failure_bytes(path: Path, raw: bytes) -> str | None:
     if path.suffix.lower() != ".json":
         return None
     try:
-        data = json.loads(raw.decode("utf-8", errors="replace"))
+        # Unreal's Automation report writer emits UTF-8 with a BOM. utf-8-sig
+        # accepts that vendor output while decoding ordinary UTF-8 identically.
+        data = json.loads(raw.decode("utf-8-sig", errors="replace"))
     except ValueError as e:
         return f"declared a .json artifact that does not parse: {e}"
     if not isinstance(data, dict):

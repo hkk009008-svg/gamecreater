@@ -1,17 +1,14 @@
-"""One supervised entry point for engine work, in either engine mode.
+"""One supervised entry point for headless Unreal work.
 
     python scripts/engine_run.py mode                       # where am I?
-    python scripts/engine_run.py mcp-check                  # is MCP usable?
+    python scripts/engine_run.py epic-mcp-check             # optional Epic MCP
     python scripts/engine_run.py headless SCRIPT.py [opts]  # supervised run
 
-WHY THIS EXISTS. The repo has two engine modes that cannot overlap --
-HEADLESS (no editor; captures, probes, sweeps) and MCP (one editor held
-open, serving tools on 127.0.0.1:8000). Before this script, using both meant
-remembering which was active, and the collision surfaced as
-`check_editor_clear` printing "editor process(es) running", whose obvious
-fix is to kill the editor -- silently ending an MCP session someone started
-on purpose. This routes on the declared mode instead, and every refusal
-names the exact transition back.
+An open editor is observable state, so there is no mode marker to maintain:
+no editor means headless work is available; an editor means headless work is
+blocked. Codex's live-editor bridge is OpenClaw. ``epic-mcp-check`` probes a
+separate, optional Epic ModelContextProtocol HTTP server and never claims to
+represent OpenClaw readiness.
 
 It is also the watchdog. Measured over the 2,283 `.log` files under
 D:/Kurogane and D:/Unreal on 2026-08-14:
@@ -26,9 +23,10 @@ supervised run now ends in a `run_verdict` classification and a sidecar, so
 a truncated run is a stated fact rather than a result someone quotes.
 
 AUTHORITY. This grants none. Headless launches are already granted in
-GAME.local.md; an INTERACTIVE editor launch is NOT, so MCP mode is reported
-and never started here. Nothing is deleted or overwritten: sidecars and logs
-go to fresh timestamped paths, and a collision is an error, not a clobber.
+GAME.local.md; this launcher never starts an interactive editor and only
+reports whether one is already open. Nothing is deleted or overwritten:
+sidecars and logs go to fresh timestamped paths, and a collision is an error,
+not a clobber.
 """
 
 from __future__ import annotations
@@ -52,9 +50,9 @@ ROOT = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS))
 
 import check_editor_clear as cec          # noqa: E402
+from game_config import load_game_config  # noqa: E402
 import run_verdict                        # noqa: E402
 
-MARKER = ROOT / ".mcp-session.local"
 MCP_CONFIG = ROOT / ".mcp.json"
 
 # Defaults chosen from the corpus, not from taste. Median engine process
@@ -71,35 +69,20 @@ POLL_S = 2.0
 
 @dataclass
 class Mode:
-    declared_mcp: bool
     editor_running: bool | None          # None = could not enumerate
-    marker: dict | None
 
     @property
     def name(self) -> str:
-        return "MCP" if self.declared_mcp else "HEADLESS"
-
-    @property
-    def stale(self) -> bool:
-        return self.declared_mcp and self.editor_running is False
-
-    @property
-    def undeclared_editor(self) -> bool:
-        return not self.declared_mcp and self.editor_running is True
+        return {True: "EDITOR", False: "HEADLESS", None: "UNKNOWN"}[
+            self.editor_running]
 
 
 def read_mode() -> Mode:
-    marker = None
-    if MARKER.is_file():
-        try:
-            marker = json.loads(MARKER.read_text(encoding="utf-8"))
-        except Exception:
-            marker = {"note": "marker file is corrupt"}
     try:
         running = bool(cec.matching_processes(cec.list_processes(), "UnrealEditor"))
     except Exception:
         running = None                    # never report this as "no editor"
-    return Mode(declared_mcp=MARKER.is_file(), editor_running=running, marker=marker)
+    return Mode(editor_running=running)
 
 
 def mcp_endpoint() -> tuple[str, int, str]:
@@ -125,17 +108,18 @@ def port_open(host: str, port: int, timeout: float = 1.5) -> bool:
         return False
 
 
-def cmd_mcp_check() -> int:
-    """Report each precondition separately -- 'MCP is broken' is not a
+def cmd_epic_mcp_check() -> int:
+    """Report each precondition separately -- 'Epic MCP is broken' is not a
     diagnosis, and these failures have different fixes.
 
-    REACHABILITY and BOOKKEEPING are deliberately separated. An earlier
-    version folded the mode declaration into readiness and printed "MCP is
-    NOT reachable" while the server was answering perfectly -- a false
-    statement, and the sort that gets a diagnostic distrusted. Declaring the
-    mode protects the NEXT session from killing a deliberate editor; it has
-    no bearing on whether tool calls connect."""
+    Reachability is measured with a protocol handshake, not inferred from an
+    open port or an editor process."""
     m = read_mode()
+    config = load_game_config()
+    project = config.uproject or config.project_root or "the configured project"
+    settings = ((config.project_dir / "Saved" / "Config" / "WindowsEditor" /
+                 "EditorPerProjectUserSettings.ini")
+                if config.project_dir else "EditorPerProjectUserSettings.ini")
     host, port, path = mcp_endpoint()
     listening = port_open(host, port)
 
@@ -152,17 +136,17 @@ def cmd_mcp_check() -> int:
 
     reach = [
         ("editor running", m.editor_running is True,
-         "open D:/Kurogane/Kurogane.uproject -- an INTERACTIVE editor launch "
+         f"open {project} -- an INTERACTIVE editor launch "
          "is not covered by the headless grant, so you must do this"),
         (f"listener on {host}:{port}", listening,
          "the editor is up but the plugin is not serving: check "
          "ModelContextProtocol is enabled and bAutoStartServer=True in "
-         "D:/Kurogane/Saved/Config/WindowsEditor/EditorPerProjectUserSettings.ini"),
+         f"{settings}"),
         ("endpoint speaks MCP", bool(hs.get("speaks_mcp")),
          f"something is listening but did not complete an MCP handshake: "
          f"{hs.get('error')}"),
     ]
-    print(f"MCP readiness  (endpoint http://{host}:{port}{path})")
+    print(f"Epic MCP readiness  (endpoint http://{host}:{port}{path})")
     for label, ok, fix in reach:
         print(f"  [{'OK ' if ok else 'NO '}] {label}")
         if not ok:
@@ -174,23 +158,14 @@ def cmd_mcp_check() -> int:
     reachable = all(ok for _, ok, _ in reach)
     print()
     if reachable:
-        print(f"MCP IS REACHABLE -- protocol {hs.get('protocol')}, "
+        print(f"EPIC MCP IS REACHABLE -- protocol {hs.get('protocol')}, "
               f"{len(hs.get('tools') or [])} tool(s) advertised: "
               f"{', '.join(hs.get('tools') or [])}")
         print("Cost: while this editor is open, EVERY headless capture, probe "
               "and sweep is blocked.")
     else:
-        print("MCP is NOT reachable; tool calls will fail to connect.")
-
-    # Bookkeeping, reported but never folded into reachability.
-    if not m.declared_mcp:
-        print()
-        print("  [--] mode not declared (bookkeeping, not reachability)")
-        print("       -> python scripts/mcp_session.py on, so the next "
-              "session sees a deliberate editor instead of one to kill")
-    if m.stale:
-        print("! STALE DECLARATION: mode says MCP, no editor is running. "
-              "Run: python scripts/mcp_session.py off")
+        print("Epic MCP is NOT reachable. This says nothing about Codex's "
+              "separate OpenClaw integration.")
     return 0 if reachable else 1
 
 
@@ -199,21 +174,15 @@ def cmd_mode() -> int:
     ed = {True: "an editor IS running", False: "no editor running",
           None: "COULD NOT ENUMERATE PROCESSES"}[m.editor_running]
     print(f"mode: {m.name}; {ed}")
-    if m.declared_mcp:
-        print(f"  declared: {(m.marker or {}).get('started', '?')}")
-        print("  headless runs are BLOCKED. To switch: "
-              "python scripts/mcp_session.py off, then close the editor.")
+    if m.editor_running is True:
+        print("  headless runs are BLOCKED. Use OpenClaw for live-editor work, "
+              "or close the editor before a headless run.")
+    elif m.editor_running is False:
+        project = load_game_config().uproject or "the configured .uproject"
+        print("  headless runs are available.")
+        print(f"  for live-editor work, open {project} yourself.")
     else:
-        print("  headless runs are available (subject to no editor running).")
-        print("  to switch: python scripts/mcp_session.py on, then open "
-              "D:/Kurogane/Kurogane.uproject yourself.")
-    if m.stale:
-        print("  ! STALE: MCP declared, no editor. Every MCP call will fail "
-              "to connect. Run: mcp_session.py off")
-    if m.undeclared_editor:
-        print("  ! An editor is open but no MCP session is declared. Headless "
-              "is blocked and nothing records why. Either close it, or "
-              "declare it: mcp_session.py on")
+        print("  headless runs fail closed until process enumeration works.")
     return 0
 
 
@@ -225,6 +194,49 @@ BASE_FLAGS = ["-unattended", "-nosplash", "-NoLiveCoding", "-notraceserver",
 
 class IntentError(Exception):
     """The requested command line cannot produce the requested result."""
+
+
+def configured_engine_project(
+        engine_override: Path | None,
+        uproject_override: Path | None) -> tuple[Path, Path]:
+    """Resolve explicit CLI paths, then the sole project in GAME.local.md."""
+    config = load_game_config()
+    engine = engine_override or config.engine_root
+    if engine is None:
+        raise IntentError(
+            "no engine was supplied and GAME.local.md has no Engine root; "
+            "pass --engine")
+    uproject = uproject_override or config.uproject
+    if uproject is None:
+        root = config.project_root
+        where = f" under {root}" if root else ""
+        raise IntentError(
+            "no uproject was supplied and GAME.local.md does not resolve to "
+            f"exactly one immediate .uproject{where}; pass --uproject")
+    return engine.resolve(), uproject.resolve()
+
+
+def default_run_root(uproject: Path) -> Path:
+    """Keep generated evidence out of source directories by default."""
+    config = load_game_config()
+    if (config.evidence_root is not None and config.uproject is not None
+            and config.uproject.resolve() == uproject.resolve()):
+        return (config.evidence_root / "Runs").resolve()
+    return (uproject.parent / "Saved" / "CodexRuns").resolve()
+
+
+def require_headless_available() -> str | None:
+    """Return a refusal reason, or None when no editor is running."""
+    mode = read_mode()
+    if mode.editor_running is None:
+        return (
+            "could not enumerate processes, so 'no editor is running' is "
+            "unproven. The never-concurrent-editors rule is fail-closed.")
+    if mode.editor_running:
+        return (
+            "an Unreal editor is running. Close it before a headless launch; "
+            "use OpenClaw for work that belongs in the live editor.")
+    return None
 
 
 def build_command(engine: Path, uproject: Path, script: Path, log: Path,
@@ -289,6 +301,253 @@ def build_command(engine: Path, uproject: Path, script: Path, log: Path,
     else:
         cmd.append(f"-ExecutePythonScript={script}")
     return cmd
+
+
+class NativeResultError(ValueError):
+    """A native Unreal report is missing or internally inconsistent."""
+
+
+def build_native_command(engine: Path, uproject: Path, log: Path, *,
+                         operation: str, selector: str | None = None,
+                         report_dir: Path | None = None,
+                         needs_rhi: bool = False) -> list[str]:
+    """Build one of the two bounded native Unreal checks."""
+    if not uproject.is_file():
+        raise IntentError(f"uproject does not exist: {uproject}")
+    exe = engine / "Engine" / "Binaries" / "Win64" / "UnrealEditor-Cmd.exe"
+    if not exe.is_file():
+        raise IntentError(f"engine binary not found: {exe}")
+
+    cmd = [str(exe), str(uproject), *BASE_FLAGS,
+           "-RenderOffscreen" if needs_rhi else "-nullrhi"]
+    if operation == "automation":
+        selector = (selector or "").strip()
+        if not selector:
+            raise IntentError("automation selector must not be empty")
+        if any(char in selector for char in ";,'\"\r\n"):
+            raise IntentError(
+                "automation selector must not contain command separators, "
+                "quotes, or a newline")
+        if report_dir is None:
+            raise IntentError("automation requires a report directory")
+        cmd.extend([
+            f"-ReportExportPath={report_dir}",
+            f"-ExecCmds=Automation RunTests {selector};Quit",
+        ])
+    elif operation == "data-validation":
+        if needs_rhi:
+            raise IntentError("data validation is a CPU commandlet")
+        cmd.extend([
+            "-run=DataValidation",
+            "-IncludeOnlyOnDiskAssets",
+            "-culture=en",
+        ])
+    else:
+        raise IntentError(f"unknown native Unreal operation: {operation}")
+    cmd.append(f"-abslog={log}")
+    return cmd
+
+
+def _report_value(data: dict, name: str):
+    """Read UE's lower-camel JSON key, accepting older struct-case output."""
+    lower_camel = name[:1].lower() + name[1:]
+    return data.get(lower_camel, data.get(name))
+
+
+def _report_int(data: dict, key: str) -> int:
+    value = _report_value(data, key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise NativeResultError(f"{key} must be a non-negative integer")
+    return value
+
+
+def parse_automation_report(path: Path) -> dict:
+    """Turn Epic's Automation index.json into a strict domain verdict."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as e:
+        raise NativeResultError(f"cannot read Automation report: {e}") from e
+    if not isinstance(data, dict):
+        raise NativeResultError("Automation report root must be an object")
+    tests = _report_value(data, "Tests")
+    if not isinstance(tests, list):
+        raise NativeResultError("Automation report Tests must be an array")
+    counts = {
+        "succeeded": _report_int(data, "Succeeded"),
+        "succeeded_with_warnings": _report_int(
+            data, "SucceededWithWarnings"),
+        "failed": _report_int(data, "Failed"),
+        "not_run": _report_int(data, "NotRun"),
+        "in_process": _report_int(data, "InProcess"),
+    }
+    total = sum(counts.values())
+    if total == 0:
+        raise NativeResultError(
+            "Automation matched zero tests; an empty run is not a pass")
+    if total != len(tests):
+        raise NativeResultError(
+            f"Automation count mismatch: counters total {total}, "
+            f"Tests has {len(tests)} entries")
+    accepted = not any(counts[k] for k in ("failed", "not_run", "in_process"))
+    status = ("FAIL" if not accepted else
+              "PASS_WITH_WARNINGS" if counts["succeeded_with_warnings"] else
+              "PASS")
+    return {
+        "schema": "ue-automation-v1",
+        "matched": total,
+        **counts,
+        "status": status,
+    }
+
+
+AUTOMATION_COMPLETE_RE = re.compile(
+    r"^LogAutomationCommandLine:\s*Display:\s*"
+    r"\*{4} TEST COMPLETE\. EXIT CODE: (-?\d+) \*{4}\s*$",
+    re.MULTILINE,
+)
+AUTOMATION_NO_MATCH_RE = re.compile(
+    r"^LogAutomationCommandLine:\s*Error:\s*"
+    r"No automation tests matched '([^']+)'\s*$",
+    re.MULTILINE,
+)
+
+
+def automation_completion_code(text: str) -> int:
+    matches = AUTOMATION_COMPLETE_RE.findall(text)
+    if len(matches) != 1:
+        raise NativeResultError(
+            f"expected one Automation completion marker, found {len(matches)}")
+    return int(matches[0])
+
+
+def process_exit_agrees(process_exit: int | None, reported_exit: int) -> bool:
+    """Windows surfaces RequestExitWithStatus(-1) as process exit 255."""
+    return (process_exit == reported_exit
+            or process_exit == reported_exit % 256)
+
+
+VALIDATION_START_RE = re.compile(
+    r"Starting to validate (\d+) assets \((\d+) associated objects such as actors\)")
+VALIDATION_SUMMARY_RE = re.compile(
+    r"Files Checked: (\d+), Passed: (\d+), Failed: (\d+), "
+    r"Skipped: (\d+), Unable to validate: (\d+)")
+VALIDATION_COMPLETE_RE = re.compile(
+    r"^LogCore:\s*Engine exit requested \(reason: Commandlet "
+    r"DataValidationCommandlet_\d+ finished execution \(result (-?\d+)\)\)\s*$",
+    re.MULTILINE,
+)
+VALIDATION_ATTEMPT_RE = re.compile(
+    r"^AssetCheck:\s+.+\s+Validating asset\s*$", re.MULTILINE)
+VALIDATION_OUTCOMES = {
+    "valid_with_warnings": "contains valid data, but has warnings.",
+    "valid": "contains valid data.",
+    "invalid": "contains invalid data.",
+    "unable_to_validate": "has no data validation.",
+}
+
+
+def parse_data_validation_log(text: str) -> dict:
+    """Parse and cross-check UE 5.8's English Data Validation output."""
+    starts = VALIDATION_START_RE.findall(text)
+    if len(starts) != 1:
+        raise NativeResultError(
+            f"expected one Data Validation start line, found {len(starts)}")
+    completions = VALIDATION_COMPLETE_RE.findall(text)
+    if len(completions) != 1:
+        raise NativeResultError(
+            "expected one Data Validation commandlet completion marker, "
+            f"found {len(completions)}")
+    commandlet_result = int(completions[0])
+    if commandlet_result != 0:
+        raise NativeResultError(
+            f"Data Validation commandlet reports result {commandlet_result}")
+
+    requested, associated = (int(v) for v in starts[0])
+    if requested == 0:
+        raise NativeResultError(
+            "Data Validation requested zero assets; an empty scan is not a pass")
+    attempted = len(VALIDATION_ATTEMPT_RE.findall(text))
+    outcomes = {
+        key: len(re.findall(
+            rf"^AssetCheck:\s+.*{re.escape(phrase)}\s*$", text, re.MULTILINE))
+        for key, phrase in VALIDATION_OUTCOMES.items()
+    }
+    # The shorter valid phrase is not a substring of the warning phrase due
+    # to the comma, so these counts remain disjoint.
+    processed = sum(outcomes.values())
+    summaries = VALIDATION_SUMMARY_RE.findall(text)
+    if len(summaries) > 1:
+        raise NativeResultError(
+            f"expected at most one Data Validation summary line, found "
+            f"{len(summaries)}")
+    if summaries:
+        checked, passed, failed, skipped, unable = (
+            int(v) for v in summaries[0])
+        summary_source = "footer"
+    else:
+        # UE 5.8's stock DataValidation commandlet does not always publish
+        # the UI subsystem's Files Checked footer. The real Kurogane run did
+        # publish one attempt and outcome for every checked asset plus the
+        # exact commandlet completion marker. That measured shape is
+        # sufficient to derive the missing aggregate; mismatched attempt and
+        # outcome lines remain an error below.
+        checked = attempted
+        passed = outcomes["valid"] + outcomes["valid_with_warnings"]
+        failed = outcomes["invalid"]
+        skipped = requested - checked
+        unable = outcomes["unable_to_validate"]
+        summary_source = "commandlet_outcomes"
+
+    contradictions = []
+    if attempted == 0:
+        contradictions.append("zero assets reached the validation attempt")
+    if attempted != processed:
+        contradictions.append(
+            f"attempt lines {attempted} != outcome lines {processed}")
+    if attempted > requested:
+        contradictions.append(
+            f"attempt lines {attempted} exceed requested assets {requested}")
+    if checked != attempted:
+        contradictions.append(f"checked {checked} != attempt lines {attempted}")
+    if checked != processed:
+        contradictions.append(f"checked {checked} != outcome lines {processed}")
+    if passed != outcomes["valid"] + outcomes["valid_with_warnings"]:
+        contradictions.append(
+            f"passed {passed} != valid outcomes "
+            f"{outcomes['valid'] + outcomes['valid_with_warnings']}")
+    if failed != outcomes["invalid"]:
+        contradictions.append(
+            f"failed {failed} != invalid outcomes {outcomes['invalid']}")
+    if unable != outcomes["unable_to_validate"]:
+        contradictions.append(
+            f"unable {unable} != not-validated outcomes "
+            f"{outcomes['unable_to_validate']}")
+    if requested != checked + skipped:
+        contradictions.append(
+            f"requested {requested} != checked {checked} + skipped {skipped}")
+    if contradictions:
+        raise NativeResultError("; ".join(contradictions))
+
+    status = (
+        "FAIL" if failed else
+        "PASS_WITH_WARNINGS"
+        if outcomes["valid_with_warnings"] or skipped or unable else
+        "PASS"
+    )
+    return {
+        "schema": "ue-data-validation-v1",
+        "requested": requested,
+        "associated_objects": associated,
+        "commandlet_result": commandlet_result,
+        "summary_source": summary_source,
+        "attempted": attempted,
+        "checked": checked,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        **outcomes,
+        "status": status,
+    }
 
 
 # --- the watchdog --------------------------------------------------------
@@ -482,7 +741,10 @@ def harness_fingerprint(paths: list[Path]) -> dict:
     }
 
 
-PROJECT_ENV_RE = re.compile(r"(?<![A-Z0-9_])(?:KUROGANE|KG)_[A-Z0-9_]+")
+# Match literal environment-style names in the script, then retain only names
+# that are actually present in this process. This stays game-agnostic while
+# avoiding an ambient environment dump.
+PROJECT_ENV_RE = re.compile(r"(?<![A-Z0-9_])[A-Z][A-Z0-9]{1,31}_[A-Z0-9_]+")
 SENSITIVE_ENV_KEY_RE = re.compile(
     r"(?:^|_)(?:API_?KEY|AUTH|BEARER|COOKIE|CREDENTIAL|PASSWORD|PASSWD|"
     r"PRIVATE_?KEY|SECRET|SESSION|SIGNING|TOKEN)(?:_|$)", re.IGNORECASE)
@@ -560,8 +822,6 @@ def bound_artifact_records(v: run_verdict.Verdict,
 
 
 def cmd_headless(a: argparse.Namespace) -> int:
-    m = read_mode()
-
     # argparse does not route dash-prefixed values through the trailing
     # ``nargs='*'`` positional under this subparser (even after ``--``).
     # Engine flags are, by definition, dash-prefixed, so provide an explicit
@@ -569,33 +829,20 @@ def cmd_headless(a: argparse.Namespace) -> int:
     # values and combine both in their declared order groups.
     extra_flags = [*a.extra, *getattr(a, "extra_flag", [])]
 
-    # Mode gate. Same verdict check_editor_clear would give; the difference
-    # is that the reason is legible and the transition is named.
-    if m.declared_mcp:
-        print("REFUSED: an MCP session is declared, so an editor is (or "
-              "should be) open serving tools. Headless and MCP are mutually "
-              "exclusive by construction.\n"
-              "  To go headless: python scripts/mcp_session.py off, then "
-              "close the editor.", file=sys.stderr)
-        return 3
-    if m.editor_running is None:
-        print("REFUSED: could not enumerate processes, so 'no editor is "
-              "running' is unproven. The never-concurrent-editors rule is "
-              "fail-closed.", file=sys.stderr)
-        return 3
-    if m.editor_running:
-        print("REFUSED: an editor is running and no MCP session is declared. "
-              "Close it (or declare it with mcp_session.py on if it is "
-              "deliberate) before a headless launch.", file=sys.stderr)
+    refusal = require_headless_available()
+    if refusal:
+        print(f"REFUSED: {refusal}", file=sys.stderr)
         return 3
 
     script = a.script.resolve()
-    engine = a.engine.resolve()
-    uproject = a.uproject.resolve()
+    try:
+        engine, uproject = configured_engine_project(a.engine, a.uproject)
+    except IntentError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 3
     artifacts = [p.resolve() for p in a.artifact]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    out_dir = (a.out_dir or (script.parent / "runs")).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = (a.out_dir or default_run_root(uproject)).resolve()
     base = f"{script.stem}-{stamp}"
     log = a.log.resolve() if a.log else (out_dir / f"{base}.log")
     sidecar = out_dir / f"{base}.sidecar.json"
@@ -611,8 +858,6 @@ def cmd_headless(a: argparse.Namespace) -> int:
                   f"would overwrite evidence and can make a stale file look "
                   f"like this run's output.", file=sys.stderr)
             return 3
-    log.parent.mkdir(parents=True, exist_ok=True)
-
     try:
         cmd = build_command(engine, uproject, script, log,
                             needs_rhi=a.needs_rhi, real_game=a.real_game,
@@ -628,6 +873,7 @@ def cmd_headless(a: argparse.Namespace) -> int:
     if a.dry_run:
         print("\n--dry-run: nothing launched.")
         return 0
+    log.parent.mkdir(parents=True, exist_ok=True)
     print()
 
     def tick(elapsed, size, quiet):
@@ -702,10 +948,6 @@ def cmd_headless(a: argparse.Namespace) -> int:
         # Only variables named literally by the target script are captured;
         # credential-shaped names are redacted.  This keeps run parameters
         # reproducible without turning a sidecar into an ambient secret dump.
-        "env_KUROGANE": {
-            k: v_ for k, v_ in project_env.items()
-            if k.startswith("KUROGANE_")
-        },
         "env_project": project_env,
         "log": v.evidence["log_snapshot"],
         "artifacts": artifact_records,
@@ -735,6 +977,231 @@ def cmd_headless(a: argparse.Namespace) -> int:
     return 0 if v.citable else (1 if v.execution == "COMPLETE" else 2)
 
 
+def _native_result(operation: str, log: Path, artifact: Path,
+                   process_exit: int | None) -> dict:
+    if operation == "automation":
+        try:
+            log_text = log.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            raise NativeResultError(
+                f"cannot read Automation log: {e}") from e
+        completion = automation_completion_code(log_text)
+        if artifact.is_file():
+            result = parse_automation_report(artifact)
+        else:
+            no_match = AUTOMATION_NO_MATCH_RE.findall(log_text)
+            if len(no_match) != 1:
+                raise NativeResultError(
+                    "Automation report is absent and the log does not carry "
+                    "one exact zero-match result")
+            result = {
+                "schema": "ue-automation-v1",
+                "matched": 0,
+                "succeeded": 0,
+                "succeeded_with_warnings": 0,
+                "failed": 0,
+                "not_run": 0,
+                "in_process": 0,
+                "status": "FAIL",
+                "error": f"no tests matched {no_match[0]!r}",
+            }
+        result["automation_exit_code"] = completion
+        if completion != 0:
+            result["status"] = "FAIL"
+            result.setdefault(
+                "error", f"Automation completion marker reports exit {completion}")
+        if not process_exit_agrees(process_exit, completion):
+            result["status"] = "ERROR"
+            result["error"] = (
+                f"process exit {process_exit} disagrees with Automation "
+                f"completion marker {completion}")
+        return result
+
+    try:
+        raw = log.read_bytes()
+        result = parse_data_validation_log(raw.decode("utf-8", "replace"))
+        result["source_log_sha256"] = hashlib.sha256(raw).hexdigest()
+        result["scope"] = (
+            "on-disk project and project-plugin assets selected by Unreal's "
+            "stock DataValidation commandlet")
+        result["blind_spots"] = [
+            "engine assets are excluded unless -includeengine is used",
+            "unsaved in-memory edits are excluded by IncludeOnlyOnDiskAssets",
+            "validation rules do not prove runtime gameplay behavior",
+        ]
+    except (OSError, NativeResultError) as e:
+        result = {
+            "schema": "ue-data-validation-v1",
+            "source_log_sha256": sha256_full(log),
+            "status": "ERROR",
+            "error": str(e),
+        }
+    atomic_write_json(artifact, result)
+    return result
+
+
+def reconcile_automation_execution(
+        verdict: run_verdict.Verdict, native: dict,
+        process_exit: int | None, killed: str | None) -> None:
+    """Apply Automation's exact terminal marker to the generic log verdict."""
+    if not (
+        verdict.execution == "TRUNCATED"
+        and isinstance(native.get("automation_exit_code"), int)
+        and process_exit_agrees(process_exit, native["automation_exit_code"])
+        and killed is None
+    ):
+        return
+    verdict.execution = "COMPLETE"
+    verdict.contradiction = False
+    verdict.reasons = [
+        reason for reason in verdict.reasons
+        if not reason.startswith("engine log with no crash marker")
+        and not reason.startswith("CONTRADICTION:")
+    ]
+    verdict.reasons.append(
+        "Epic Automation wrote its terminal TEST COMPLETE marker with "
+        f"exit {native['automation_exit_code']}; this RequestExitWithStatus "
+        "path does not write the ordinary 'Log file closed' marker")
+
+
+def cmd_native(a: argparse.Namespace, operation: str) -> int:
+    refusal = require_headless_available()
+    if refusal:
+        print(f"REFUSED: {refusal}", file=sys.stderr)
+        return 3
+    try:
+        engine, uproject = configured_engine_project(a.engine, a.uproject)
+    except IntentError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 3
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    root = (a.out_dir or default_run_root(uproject)).resolve()
+    run_dir = root / f"{operation}-{stamp}"
+    log = run_dir / "engine.log"
+    sidecar = run_dir / "sidecar.json"
+    report_dir = run_dir / "report"
+    artifact = (report_dir / "index.json" if operation == "automation"
+                else run_dir / "validation.json")
+    if run_dir.exists():
+        print(f"REFUSED: {run_dir} already exists; native runs require a "
+              "fresh evidence directory.", file=sys.stderr)
+        return 3
+    try:
+        cmd = build_native_command(
+            engine, uproject, log,
+            operation=operation,
+            selector=getattr(a, "selector", None),
+            report_dir=report_dir if operation == "automation" else None,
+            needs_rhi=getattr(a, "needs_rhi", False),
+        )
+    except IntentError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 3
+
+    print(f"run     : {run_dir.name}")
+    print(f"log     : {log}")
+    print(f"artifact: {artifact}")
+    print(f"budget  : stall {a.stall}s / wall {a.wall}s")
+    print(f"command : {subprocess.list2cmdline(cmd)}")
+    if a.dry_run:
+        print("\n--dry-run: nothing launched and no directory created.")
+        return 0
+    print()
+
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        run_dir.mkdir()
+    except FileExistsError:
+        print(f"REFUSED: {run_dir} appeared after preflight; existing "
+              "evidence was preserved.", file=sys.stderr)
+        return 3
+
+    harness = harness_fingerprint([Path(__file__), Path(run_verdict.__file__)])
+    baseline = {str(artifact): run_verdict.artifact_snapshot(artifact)}
+    t0_ns = time.time_ns()
+    t0 = t0_ns / 1_000_000_000
+
+    def tick(elapsed, size, quiet):
+        print(f"\r  {elapsed:6.0f}s  log {size/1024:9.1f} KB  "
+              f"quiet {quiet:5.0f}s ", end="", flush=True)
+
+    rc, killed, elapsed = supervise(
+        cmd, log, stall_s=a.stall, wall_s=a.wall, on_tick=tick)
+    print()
+    try:
+        native = _native_result(operation, log, artifact, rc)
+    except (OSError, NativeResultError, FileExistsError) as e:
+        native = {
+            "schema": f"ue-{operation}-v1",
+            "status": "ERROR",
+            "error": f"could not publish native result: {e}",
+        }
+
+    expect_rhi = (a.expect_rhi or "D3D12"
+                  if getattr(a, "needs_rhi", False) else None)
+    v = run_verdict.verdict_for(
+        log, [artifact], exit_code=rc, killed=killed,
+        expect_rhi=expect_rhi,
+        artifact_baselines=baseline,
+        artifact_not_before_ns=t0_ns,
+    )
+    if operation == "automation":
+        reconcile_automation_execution(v, native, rc, killed)
+    native_ok = native.get("status") in {"PASS", "PASS_WITH_WARNINGS"}
+    if not native_ok:
+        v.environment_ok = False
+        v.reasons.append(
+            f"native {operation} verdict is {native.get('status', 'ERROR')}: "
+            f"{native.get('error') or 'see native_result counts'}")
+    elif native.get("status") == "PASS_WITH_WARNINGS":
+        v.reasons.append(
+            f"native {operation} completed with warnings; counts are retained "
+            "in native_result")
+
+    artifact_records = bound_artifact_records(v, [artifact])
+    payload = {
+        "schema": "engine-native-sidecar-v1",
+        "run": run_dir.name,
+        "started_utc": datetime.fromtimestamp(t0, timezone.utc).isoformat(
+            timespec="seconds"),
+        "started_unix_ns": t0_ns,
+        "elapsed_s": round(elapsed, 1),
+        "command": cmd,
+        "command_line": subprocess.list2cmdline(cmd),
+        "intent": {
+            "operation": operation,
+            "selector": getattr(a, "selector", None),
+            "needs_rhi": getattr(a, "needs_rhi", False),
+        },
+        "budgets": {"stall_s": a.stall, "wall_s": a.wall},
+        "killed": killed,
+        "exit_code": rc,
+        "harness": harness,
+        "environment": {
+            k: os.environ.get(k) for k in (
+                "PYTHONHASHSEED", "PYTHONDONTWRITEBYTECODE",
+                "OMP_NUM_THREADS", "MKL_NUM_THREADS")
+        },
+        "log": v.evidence["log_snapshot"],
+        "artifacts": artifact_records,
+        "native_result": native,
+        "verdict": v.as_dict(),
+    }
+    try:
+        atomic_write_json(sidecar, payload)
+    except FileExistsError:
+        print(f"REFUSED: {sidecar} appeared before atomic publication; "
+              "existing evidence was preserved.", file=sys.stderr)
+        return 2
+
+    print(f"NATIVE    : {native.get('status', 'ERROR')}")
+    print(run_verdict.render(v))
+    print(f"\nsidecar : {sidecar}")
+    return 0 if v.citable and native_ok else (
+        1 if v.execution == "COMPLETE" else 2)
+
+
 # --- cli -----------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -743,13 +1210,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("mode", help="which engine mode is active, and how to switch")
-    sub.add_parser("mcp-check", help="is the MCP surface actually reachable")
+    sub.add_parser(
+        "epic-mcp-check",
+        help="is the optional Epic HTTP MCP surface actually reachable")
 
     h = sub.add_parser("headless", help="supervised headless run")
     h.add_argument("script", type=Path)
-    h.add_argument("--engine", type=Path, default=Path("D:/UE_5.8"))
-    h.add_argument("--uproject", type=Path,
-                   default=Path("D:/Kurogane/Kurogane.uproject"))
+    h.add_argument("--engine", type=Path, default=None,
+                   help="engine root; defaults to GAME.local.md")
+    h.add_argument("--uproject", type=Path, default=None,
+                   help="project file; defaults to the sole immediate "
+                        ".uproject under GAME.local.md's Project root")
     h.add_argument("--log", type=Path, default=None)
     h.add_argument("--out-dir", type=Path, default=None)
     h.add_argument("--artifact", type=Path, action="append", default=[],
@@ -776,6 +1247,35 @@ def build_parser() -> argparse.ArgumentParser:
                         "--extra-flag=-nullrhi")
     h.add_argument("extra", nargs="*", default=[],
                    help="extra engine flags, after --")
+
+    def add_native_common(parser: argparse.ArgumentParser, *, rhi: bool) -> None:
+        parser.add_argument("--engine", type=Path, default=None,
+                            help="engine root; defaults to GAME.local.md")
+        parser.add_argument("--uproject", type=Path, default=None,
+                            help="project file; defaults to GAME.local.md")
+        parser.add_argument("--out-dir", type=Path, default=None,
+                            help="parent for the fresh run directory")
+        if rhi:
+            parser.add_argument(
+                "--needs-rhi", action="store_true",
+                help="use RenderOffscreen instead of NullRHI and assert D3D12")
+            parser.add_argument(
+                "--expect-rhi", default=None,
+                help="override the RHI asserted by --needs-rhi")
+        parser.add_argument("--stall", type=int, default=DEFAULT_STALL_S)
+        parser.add_argument("--wall", type=int, default=DEFAULT_WALL_S)
+        parser.add_argument("--dry-run", action="store_true")
+
+    automation = sub.add_parser(
+        "automation", help="run one bounded Unreal Automation selector")
+    automation.add_argument(
+        "selector", help="exact test name, prefix, or supported filter")
+    add_native_common(automation, rhi=True)
+
+    validation = sub.add_parser(
+        "data-validation",
+        help="validate all on-disk project assets with Unreal's stock commandlet")
+    add_native_common(validation, rhi=False)
     return ap
 
 
@@ -785,8 +1285,10 @@ def main(argv: list[str]) -> int:
     a = build_parser().parse_args(argv[1:])
     if a.cmd == "mode":
         return cmd_mode()
-    if a.cmd == "mcp-check":
-        return cmd_mcp_check()
+    if a.cmd == "epic-mcp-check":
+        return cmd_epic_mcp_check()
+    if a.cmd in {"automation", "data-validation"}:
+        return cmd_native(a, a.cmd)
     return cmd_headless(a)
 
 

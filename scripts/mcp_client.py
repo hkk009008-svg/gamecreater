@@ -15,10 +15,10 @@ measured on 2026-08-14:
      cannot use the very server it configured. This module needs no restart.
   2. An open TCP port proves a listener, not a protocol. Only a real
      `initialize` handshake proves the thing on 8000 speaks MCP, and
-     `engine_run.py mcp-check` now uses this module to make that claim
+     `engine_run.py epic-mcp-check` now uses this module to make that claim
      measured instead of inferred.
 
-AUTHORITY. An MCP call is not a lesser act than a Python one. CLAUDE.md
+AUTHORITY. An MCP call is not a lesser act than a Python one. AGENTS.md
 reserves canonical `Content/` writes, deletions, publishing and DCC launches
 for per-act authorization, and calling them through a toolset does not
 change that. This module ships read-only helpers only; RESERVED_RE below
@@ -54,9 +54,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_URL = "http://127.0.0.1:8000/mcp"
 PROTOCOL = "2025-06-18"
 
-# Backstop only. The authorization boundary is CLAUDE.md, not this regex.
+# Backstop only. The authorization boundary is AGENTS.md, not this regex.
 RESERVED_RE = re.compile(
-    r"(delete|destroy|remove|publish|push|merge|deploy|cook|package"
+    r"(delete|destroy|remove|publish|push|merge|deploy"
     r"|savepackage|save_all|setvisibility)", re.IGNORECASE)
 
 
@@ -160,7 +160,7 @@ class Mcp:
                      allow_reserved: bool = False) -> dict:
         if not allow_reserved and RESERVED_RE.search(tool):
             raise McpError(
-                f"refusing to call {tool!r}: its name matches an act CLAUDE.md "
+                f"refusing to call {tool!r}: its name matches an act AGENTS.md "
                 f"reserves for per-act authorization. Ask, then pass "
                 f"allow_reserved=True for that one call.")
         return self.raw_call("call_tool", {
@@ -208,7 +208,7 @@ class Mcp:
 
 
 def probe(url: str | None = None) -> dict:
-    """One-shot reachability probe used by engine_run.py mcp-check.
+    """One-shot reachability probe used by engine_run.py epic-mcp-check.
 
     Returns a dict; never raises. `speaks_mcp` is the only honest answer to
     "is MCP up", and it is strictly stronger than "the port is open"."""

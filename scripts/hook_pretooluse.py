@@ -11,9 +11,7 @@ Exit 0 allows the tool call. Exit 2 blocks it, with the reason on stderr
 (shown to the model). Anything this dispatcher cannot parse is allowed —
 the hook mechanizes two named rules; it is not a general firewall.
 
-Unexpected exceptions fail closed (exit 2). A crash that became a non-2
-exit would be fail-open: Claude Code treats any exit other than 2 as
-"hook error, continue with the tool call".
+Unexpected exceptions fail closed (exit 2).
 """
 
 from __future__ import annotations
@@ -105,7 +103,7 @@ def tool_of(payload: str) -> str:
     and the dispatcher allowed it unconditionally. That was harmless only
     while zero MCP servers were configured; enabling Unreal's MCP server
     changes that, and any future git-capable MCP server would make
-    CLAUDE.md's push rule false without a line of this file changing.
+    AGENTS.md's push rule false without a line of this file changing.
     """
     try:
         data = json.loads(payload.lstrip("﻿ \r\n\t"))
@@ -115,10 +113,13 @@ def tool_of(payload: str) -> str:
     return name if isinstance(name, str) else ""
 
 
-# MCP tool names that perform the acts CLAUDE.md reserves to the user.
+# Repository MCP tool names that perform acts AGENTS.md reserves to the user.
 # Matched on the NAME because an MCP payload's arguments are server-defined
 # and cannot be parsed generically. Deliberately narrow: this blocks the
-# named acts, it is not a general MCP firewall, and it says so when it fires.
+# named outward/repository acts, it is not a general MCP firewall, and it says
+# so when it fires. Live Unreal mutations are intentionally not matched: the
+# hook cannot see the conversation's exact authorization or scope, so a static
+# name block would also reject every authorized OpenClaw change.
 MCP_RESERVED_RE = re.compile(
     r"(?:^|_)(?:push|publish|merge|make_public|set_visibility|delete_repo)"
     r"(?:_|$)", re.IGNORECASE)
@@ -166,8 +167,9 @@ def dispatch_tool(tool_name: str) -> int:
     if not tool_name.startswith("mcp__"):
         return 0
     if MCP_RESERVED_RE.search(tool_name):
-        print(f"MCP BLOCKED: '{tool_name}' names an act CLAUDE.md reserves "
-              f"to the user (push / merge / publish / visibility change). "
+        print(f"MCP BLOCKED: '{tool_name}' names an act AGENTS.md reserves "
+              f"to the user (repository push, merge, publication, visibility, "
+              f"or deletion). "
               f"The shell-command guards cannot see MCP calls at all, so "
               f"this rule keys on the tool name. Have the user authorize "
               f"the exact effect, executor and target.", file=sys.stderr)
@@ -180,7 +182,7 @@ def dispatch(command: str) -> int:
         print("inbox-guard: that command TRUNCATES a lessons inbox "
               "(single '>' / Set-Content / Out-File / tee without append). "
               "Lessons are append-only; use '>>' to add, and distill-an-arc "
-              "is the only sanctioned rewrite. Rule: gamecreater CLAUDE.md, "
+              "is the only sanctioned rewrite. Rule: gamecreater AGENTS.md, "
               "the improvement loop.", file=sys.stderr)
         return 2
 
@@ -188,7 +190,7 @@ def dispatch(command: str) -> int:
         rc = run_guard(preflight_push.main,
                        ["preflight_push", push_target_dir(command)])
         if rc != 0:
-            print("push-guard: see the rule in gamecreater CLAUDE.md "
+            print("push-guard: see the rule in gamecreater AGENTS.md "
                   "(Authorization boundary).", file=sys.stderr)
             return 2
         return 0

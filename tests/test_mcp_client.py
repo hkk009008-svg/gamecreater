@@ -71,7 +71,7 @@ class TestImageExtraction(unittest.TestCase):
 
 
 class TestReservedActBackstop(unittest.TestCase):
-    """CLAUDE.md reserves deletion, publishing and canonical writes for
+    """AGENTS.md reserves deletion, publishing and canonical writes for
     per-act authorization. Routing one through a toolset does not change
     that. This is a backstop, not a substitute for asking."""
 
@@ -83,11 +83,19 @@ class TestReservedActBackstop(unittest.TestCase):
     def test_destructive_tool_names_are_refused_before_any_request(self):
         m = self._client()
         for name in ("DeleteAsset", "RemoveActor", "PublishPlugin",
-                     "SetVisibility", "CookContent"):
+                     "SetVisibility"):
             with patch.object(mc.Mcp, "raw_call") as rc:
-                with self.assertRaises(mc.McpError, msg=name):
+                with self.assertRaises(mc.McpError, msg=name) as caught:
                     m.toolset_call("Some.Toolset", name, {})
+                self.assertIn("AGENTS.md", str(caught.exception))
                 rc.assert_not_called()
+
+    def test_cook_and_package_names_are_not_reserved(self):
+        m = self._client()
+        for name in ("CookContent", "PackageProject"):
+            with patch.object(mc.Mcp, "raw_call", return_value={"ok": 1}) as rc:
+                m.toolset_call("Some.Toolset", name, {})
+                rc.assert_called_once()
 
     def test_read_only_tool_names_pass_through(self):
         """The quiet direction: a backstop that blocked everything would be

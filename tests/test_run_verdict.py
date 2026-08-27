@@ -16,6 +16,7 @@ would pass a one-sided suite and be useless.
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -279,6 +280,12 @@ class TestOutputVerdictIsIndependent(unittest.TestCase):
             art.write_text("{truncated mid-wri", encoding="utf-8")
             v = rv.verdict_for(self._clean_log(tmp), [art])
             self.assertEqual(v.output, "PRESENT_BUT_FAILING")
+
+    def test_utf8_bom_json_is_valid_vendor_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            art = Path(td) / "report.json"
+            art.write_text('{"status":"PASS"}', encoding="utf-8-sig")
+            self.assertIsNone(rv.self_reported_failure(art))
 
     def test_non_json_artifacts_are_only_checked_for_existence(self):
         """A .png cannot self-report, and pretending to inspect it would be

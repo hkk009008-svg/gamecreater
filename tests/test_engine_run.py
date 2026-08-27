@@ -21,6 +21,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import engine_run as er
+from game_config import GameConfig
 
 
 def fake_project(tmp: Path) -> tuple[Path, Path, Path]:
@@ -37,6 +38,14 @@ def fake_project(tmp: Path) -> tuple[Path, Path, Path]:
 
 
 class TestCommandBuilder(unittest.TestCase):
+    def test_cli_exposes_epic_mcp_check_under_its_exact_name(self):
+        parsed = er.build_parser().parse_args(["epic-mcp-check"])
+        self.assertEqual(parsed.cmd, "epic-mcp-check")
+
+        with patch.object(er, "cmd_epic_mcp_check", return_value=7) as check:
+            self.assertEqual(er.main(["engine_run", "epic-mcp-check"]), 7)
+        check.assert_called_once_with()
+
     def test_cli_accepts_dash_prefixed_engine_flag(self):
         """The old trailing positional rejected exactly the values it was
         meant to carry: argparse left ``-- -nullrhi`` unrecognized."""
@@ -167,6 +176,82 @@ class TestCommandBuilder(unittest.TestCase):
                                  Path(t) / "r.log", needs_rhi=False)
 
 
+class TestConfiguredDefaults(unittest.TestCase):
+    def test_engine_and_sole_uproject_come_from_game_local_config(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            engine, uproject, _ = fake_project(root)
+            config = GameConfig(
+                source=root / "GAME.local.md",
+                project_root=root,
+                engine_root=engine,
+            )
+            with patch.object(er, "load_game_config", return_value=config):
+                actual_engine, actual_uproject = er.configured_engine_project(
+                    None, None)
+            self.assertEqual(actual_engine, engine.resolve())
+            self.assertEqual(actual_uproject, uproject.resolve())
+
+    def test_explicit_paths_work_without_game_local_defaults(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            engine, uproject, _ = fake_project(root)
+            empty = GameConfig(source=root / "missing-GAME.local.md")
+            with patch.object(er, "load_game_config", return_value=empty):
+                actual = er.configured_engine_project(engine, uproject)
+            self.assertEqual(actual, (engine.resolve(), uproject.resolve()))
+
+    def test_missing_engine_default_fails_closed(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _, uproject, _ = fake_project(root)
+            config = GameConfig(
+                source=root / "GAME.local.md",
+                project_root=uproject,
+            )
+            with patch.object(er, "load_game_config", return_value=config):
+                with self.assertRaises(er.IntentError) as cm:
+                    er.configured_engine_project(None, None)
+            self.assertIn("pass --engine", str(cm.exception))
+
+    def test_ambiguous_project_default_fails_closed(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            engine, _, _ = fake_project(root)
+            (root / "Another.uproject").write_text("{}", encoding="utf-8")
+            config = GameConfig(
+                source=root / "GAME.local.md",
+                project_root=root,
+                engine_root=engine,
+            )
+            with patch.object(er, "load_game_config", return_value=config):
+                with self.assertRaises(er.IntentError) as cm:
+                    er.configured_engine_project(None, None)
+            self.assertIn("exactly one immediate .uproject", str(cm.exception))
+            self.assertIn("pass --uproject", str(cm.exception))
+
+    def test_default_run_root_uses_configured_evidence_root(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _, uproject, _ = fake_project(root)
+            config = GameConfig(
+                source=root / "GAME.local.md",
+                project_root=root,
+            )
+            with patch.object(er, "load_game_config", return_value=config):
+                actual = er.default_run_root(uproject)
+            self.assertEqual(actual, (root / "Experiments" / "Runs").resolve())
+
+    def test_default_run_root_falls_back_beside_explicit_project(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _, uproject, _ = fake_project(root)
+            empty = GameConfig(source=root / "missing-GAME.local.md")
+            with patch.object(er, "load_game_config", return_value=empty):
+                actual = er.default_run_root(uproject)
+            self.assertEqual(actual, (root / "Saved" / "CodexRuns").resolve())
+
+
 class TestWatchdog(unittest.TestCase):
     """Real processes. Each asserts the kill HAPPENED, not that a mock was
     called."""
@@ -263,35 +348,21 @@ class TestModeRouting(unittest.TestCase):
             rc = er.cmd_headless(a)
         return rc, out.getvalue() + err.getvalue()
 
-    def test_headless_refused_while_an_mcp_session_is_declared(self):
+    def test_headless_refused_when_an_editor_is_open(self):
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
-            marker = tmp / ".mcp-session.local"
-            marker.write_text('{"started":"now"}', encoding="utf-8")
-            with patch.object(er, "MARKER", marker), \
-                 patch.object(er.cec, "list_processes",
-                              return_value=["UnrealEditor.exe"]):
-                rc, text = self._run_headless(tmp)
-            self.assertEqual(rc, 3)
-            self.assertIn("mutually exclusive", text)
-            self.assertIn("mcp_session.py off", text)
-
-    def test_headless_refused_when_an_undeclared_editor_is_open(self):
-        with tempfile.TemporaryDirectory() as t:
-            tmp = Path(t)
-            with patch.object(er, "MARKER", tmp / "absent"), \
-                 patch.object(er.cec, "list_processes",
+            with patch.object(er.cec, "list_processes",
                               return_value=["UnrealEditor-Cmd.exe"]):
                 rc, text = self._run_headless(tmp)
             self.assertEqual(rc, 3)
-            self.assertIn("no MCP session is declared", text)
+            self.assertIn("an Unreal editor is running", text)
+            self.assertIn("use OpenClaw", text)
 
     def test_headless_fails_closed_when_processes_cannot_be_listed(self):
         """An enumerator that crashed is not proof that no editor is running."""
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
-            with patch.object(er, "MARKER", tmp / "absent"), \
-                 patch.object(er.cec, "list_processes",
+            with patch.object(er.cec, "list_processes",
                               side_effect=er.cec.ProcessListError("boom")):
                 rc, text = self._run_headless(tmp)
             self.assertEqual(rc, 3)
@@ -299,11 +370,10 @@ class TestModeRouting(unittest.TestCase):
 
     def test_headless_allowed_when_the_machine_is_clear(self):
         """The quiet direction: a router that refused everything would pass
-        the three refusal tests above."""
+        the two refusal tests above."""
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
-            with patch.object(er, "MARKER", tmp / "absent"), \
-                 patch.object(er.cec, "list_processes",
+            with patch.object(er.cec, "list_processes",
                               return_value=["explorer.exe", "python.exe"]):
                 rc, text = self._run_headless(tmp)
             self.assertEqual(rc, 0)
@@ -318,8 +388,7 @@ class TestModeRouting(unittest.TestCase):
             a = er.build_parser().parse_args(
                 ["headless", str(s), "--engine", str(e), "--uproject", str(u),
                  "--out-dir", str(tmp / "runs"), "--log", str(log), "--dry-run"])
-            with patch.object(er, "MARKER", tmp / "absent"), \
-                 patch.object(er.cec, "list_processes", return_value=["explorer.exe"]):
+            with patch.object(er.cec, "list_processes", return_value=["explorer.exe"]):
                 out, err = io.StringIO(), io.StringIO()
                 with redirect_stdout(out), redirect_stderr(err):
                     rc = er.cmd_headless(a)
@@ -337,8 +406,7 @@ class TestModeRouting(unittest.TestCase):
                 ["headless", str(s), "--engine", str(e), "--uproject", str(u),
                  "--out-dir", str(tmp / "runs"), "--artifact", str(artifact),
                  "--dry-run"])
-            with patch.object(er, "MARKER", tmp / "absent"), \
-                 patch.object(er.cec, "list_processes", return_value=["explorer.exe"]):
+            with patch.object(er.cec, "list_processes", return_value=["explorer.exe"]):
                 out, err = io.StringIO(), io.StringIO()
                 with redirect_stdout(out), redirect_stderr(err):
                     rc = er.cmd_headless(a)
@@ -453,8 +521,7 @@ class TestHeadlessEvidenceBinding(unittest.TestCase):
                 log.write_text(self.CLEAN_LOG, encoding="utf-8")
                 return 0, None, 0.001
 
-            with patch.object(er, "MARKER", root / "absent"), \
-                 patch.object(er.cec, "list_processes", return_value=[]), \
+            with patch.object(er.cec, "list_processes", return_value=[]), \
                  patch.object(er, "supervise", side_effect=produce):
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                     rc = er.cmd_headless(args)
@@ -476,8 +543,7 @@ class TestHeadlessEvidenceBinding(unittest.TestCase):
                 artifact.write_text('{"status":"FAIL"}', encoding="utf-8")
                 return {"sha256": "x", "changed_line_count": 0, "files": []}
 
-            with patch.object(er, "MARKER", root / "absent"), \
-                 patch.object(er.cec, "list_processes", return_value=[]), \
+            with patch.object(er.cec, "list_processes", return_value=[]), \
                  patch.object(er, "harness_fingerprint", side_effect=race), \
                  patch.object(er, "supervise") as supervise:
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -488,7 +554,7 @@ class TestHeadlessEvidenceBinding(unittest.TestCase):
                              {"status": "FAIL"})
 
 
-class TestMcpEndpoint(unittest.TestCase):
+class TestEpicMcpEndpoint(unittest.TestCase):
     def test_endpoint_is_read_from_the_client_config_not_hardcoded(self):
         """If the checker hardcoded the port it would drift from .mcp.json
         and report 'MCP down' while MCP was up on another port."""
@@ -519,18 +585,19 @@ class TestMcpEndpoint(unittest.TestCase):
         self.assertFalse(er.port_open(host, port),
                          "port still reads open after the listener closed")
 
-    def _check(self, tmp, *, marker: bool, procs, listening, probe_result):
-        m = (tmp / "declared.json") if marker else (tmp / "absent")
-        if marker:
-            m.write_text('{"started":"now"}', encoding="utf-8")
+    def _check(self, tmp, *, procs, listening, probe_result):
         import mcp_client
-        with patch.object(er, "MARKER", m), \
+        config = GameConfig(
+            source=tmp / "GAME.local.md",
+            project_root=tmp / "Project",
+        )
+        with patch.object(er, "load_game_config", return_value=config), \
              patch.object(er.cec, "list_processes", return_value=procs), \
              patch.object(er, "port_open", return_value=listening), \
              patch.object(mcp_client, "probe", return_value=probe_result):
             out = io.StringIO()
             with redirect_stdout(out):
-                rc = er.cmd_mcp_check()
+                rc = er.cmd_epic_mcp_check()
         return rc, out.getvalue()
 
     DEAD = {"speaks_mcp": False, "error": "connection refused", "tools": []}
@@ -541,7 +608,7 @@ class TestMcpEndpoint(unittest.TestCase):
         """'MCP is broken' is not a diagnosis: these three have three
         different fixes and must not collapse into one line."""
         with tempfile.TemporaryDirectory() as t:
-            rc, text = self._check(Path(t), marker=False,
+            rc, text = self._check(Path(t),
                                    procs=["explorer.exe"], listening=False,
                                    probe_result=self.DEAD)
             self.assertEqual(rc, 1)
@@ -554,33 +621,28 @@ class TestMcpEndpoint(unittest.TestCase):
         """The load-bearing one. A listener is not a protocol -- anything
         could hold port 8000. Only the handshake decides."""
         with tempfile.TemporaryDirectory() as t:
-            rc, text = self._check(Path(t), marker=True,
+            rc, text = self._check(Path(t),
                                    procs=["UnrealEditor.exe"], listening=True,
                                    probe_result=self.DEAD)
             self.assertEqual(rc, 1)
             self.assertIn("[NO ] endpoint speaks MCP", text)
-            self.assertIn("MCP is NOT reachable", text)
+            self.assertIn("Epic MCP is NOT reachable", text)
 
-    def test_undeclared_mode_does_not_make_a_live_server_unreachable(self):
-        """The regression this split exists for: an earlier version folded
-        mode-declaration into readiness and printed 'MCP is NOT reachable;
-        tool calls will fail to connect' while the server was answering.
-        Declaring the mode is bookkeeping for the NEXT session."""
+    def test_live_server_reachability_needs_no_mode_declaration(self):
+        """Reachability is observed directly; there is no marker whose stale
+        bookkeeping can contradict a successful protocol handshake."""
         with tempfile.TemporaryDirectory() as t:
-            rc, text = self._check(Path(t), marker=False,
+            rc, text = self._check(Path(t),
                                    procs=["UnrealEditor.exe"], listening=True,
                                    probe_result=self.LIVE)
             self.assertEqual(rc, 0)
-            self.assertIn("MCP IS REACHABLE", text)
-            self.assertNotIn("MCP is NOT reachable", text)
-            # ...and the bookkeeping gap is still surfaced, just not as a
-            # reachability failure.
-            self.assertIn("bookkeeping, not reachability", text)
-            self.assertIn("mcp_session.py on", text)
+            self.assertIn("EPIC MCP IS REACHABLE", text)
+            self.assertNotIn("Epic MCP is NOT reachable", text)
+            self.assertNotIn("bookkeeping", text)
 
     def test_fully_ready_reports_protocol_and_the_headless_cost(self):
         with tempfile.TemporaryDirectory() as t:
-            rc, text = self._check(Path(t), marker=True,
+            rc, text = self._check(Path(t),
                                    procs=["UnrealEditor.exe"], listening=True,
                                    probe_result=self.LIVE)
             self.assertEqual(rc, 0)

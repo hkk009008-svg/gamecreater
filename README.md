@@ -1,52 +1,72 @@
 # gamecreater
 
-An operating system for building games with Claude over months, not
-sessions. It exists because long-horizon work fails in characteristic ways:
-sessions start blind, lessons die in scrollback or gitignored notes, the
-same mistake gets paid for twice, and "verified" claims turn out to have
-been verified on the wrong path. Everything here is a countermeasure with a
-named failure behind it.
+`gamecreater` is the small control repository for long-running Unreal game
+work. The game project and generated evidence live in the paths configured for
+the active game; this repository keeps only the shared router, skills, guards,
+and launch tools.
 
-## What's inside
+## Start here
 
-- **`CLAUDE.md`** — the session router: load order, skills by firing
-  moment, the authorization boundary, the checkpoint ritual.
-- **`memory/`** — the memory spine: doctrine, templates for `NOW.md` /
-  the open register / arc briefs, and the lessons inbox.
-- **`skills/`** — canonical skill bodies in three tiers: `method/`
-  (reasoning discipline), `harness/` (engine-and-pipeline procedure),
-  `lifecycle/` (the improvement loop itself). Each names the failure that
-  paid for it and carries a changelog.
-- **`.claude/skills/`** — the generated discovery surface (run
-  `scripts/sync_skills.py`; don't edit by hand).
-- **`scripts/`** — guards and plumbing: push preflight, editor-clear
-  check, skill sync, publishability scrub, and the PreToolUse wrapper
-  that picks a Python interpreter without fail-opening on a block.
-- **`.claude/settings.json`** — hooks that make the two most expensive
-  rules mechanical instead of remembered.
+- `AGENTS.md` is the authoritative workflow and authorization boundary.
+- `GAME.local.md` binds this checkout to the active game, engine, project,
+  working root, and standing grants. Copy `templates/GAME.local.template.md`
+  when setting up a new machine.
+- The active game's `NOW.md`, whose path is recorded in `GAME.local.md`, is the
+  current plan, register, blockers, and next executable action.
 
-## Adopting it for a game
+Claude runs session orientation automatically. After a checkout or any change
+to `.codex/hooks.json`, review and trust that exact definition with Codex's
+`/hooks` command; a configured file is not proof that Codex is running it.
+Orientation can always be run directly:
 
-1. Clone this repo; open your Claude sessions anchored here.
-2. Copy `templates/GAME.local.template.md` to `GAME.local.md` (gitignored)
-   and fill in your machine's paths: working root, project root, engine,
-   and the standing authorization grants.
-3. Create `NOW.md` and a lessons inbox in your game's working root from
-   `memory/NOW.template.md` and the inbox pattern in `memory/LESSONS.md`.
-4. Run `python3 scripts/sync_skills.py` (or `python` where that name
-   exists) to build the skill surface, including your game's own skills
-   as `game-<name>-*`. Canonical game skills live in the working root's
-   `skills/<tier>/<name>/`; Claude-native ones in `.claude/skills/`.
-5. Work. Append lessons as they happen; distill them into skills at arc
-   ends; keep `NOW.md` true at every checkpoint.
+```powershell
+python scripts/session_start.py
+```
 
-## Principles
+## Unreal entry points
 
-- **Memory is layered by lifetime.** Standing corrections outlive
-  projects; current truth lives one place and is updated at checkpoints;
-  lessons are captured raw immediately and distilled deliberately later.
-- **Only mechanize what failed.** A guard exists because its rule was
-  broken expensively, not because it might be. Everything else stays
-  advisory, so the system doesn't calcify.
-- **A gate proves nothing unless it runs the real path.** The single most
-  expensive class of failure this system encodes.
+Use the supervised launcher instead of constructing an Unreal command line:
+
+```powershell
+python scripts/engine_run.py mode
+python scripts/engine_run.py automation "^Exact.Test.Name$"
+python scripts/engine_run.py headless path\to\probe.py --artifact path\to\report.json
+python scripts/engine_run.py data-validation
+python scripts/engine_run.py epic-mcp-check
+```
+
+- **Live editor:** open the configured Unreal project, then use Codex's
+  OpenClaw stdio bridge for inspection, PIE control, and reversible tuning.
+  Canonical mutations still require the exact authorization named in
+  `GAME.local.md`. An open editor intentionally blocks headless runs.
+- **Automation:** run one bounded native Unreal test or prefix after a change.
+  A zero-match selector is a failure, not a green empty run.
+- **Headless:** close the editor first, then use `engine_run.py headless` for
+  probes, captures, and sweeps.
+- **Data Validation:** run the stock whole-project asset scan at checkpoints,
+  not after every edit; large vendor-heavy projects can take many minutes.
+- **Optional Epic HTTP MCP:** `.mcp.json` describes Epic's separate
+  ModelContextProtocol HTTP surface. It is not OpenClaw and is not required for
+  Codex live-editor work. `engine_run.py epic-mcp-check` only checks this optional
+  endpoint.
+
+Keep the verification ladder proportional: native Automation per change,
+focused headless probes for behavior or renders, Data Validation at a
+checkpoint, and UAT/Gauntlet packaged smoke only when packaging work begins.
+Add no new orchestration layer until one of those native paths cannot express
+the required check.
+
+## Skills and tests
+
+Canonical skills live in `skills/`; game-specific skills come from the active
+working root. Refresh the generated discovery surfaces after skill changes:
+
+```powershell
+python scripts/sync_skills.py
+```
+
+Run the repository test suite with:
+
+```powershell
+python -m unittest discover -s tests -p "test_*.py"
+```

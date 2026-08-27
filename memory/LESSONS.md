@@ -650,3 +650,14 @@ The next sweep starts below this line.
   live UObject/world/controller/pawn references for identity and prove the
   equality detector with a real other-actor negative control; never mutate the
   subject merely to label it for a read-only probe.
+- 2026-08-27 — PARSE THE VENDOR ARTIFACT THAT ACTUALLY LANDED, NOT THE SOURCE
+  TYPE OR A SIBLING UI PATH. UE 5.8 Automation wrote a UTF-8 BOM and
+  lower-camel JSON keys, and its `RequestExitWithStatus` path ended with the
+  exact `TEST COMPLETE` marker without the usual log-close line. The stock
+  DataValidation commandlet then finished and closed after 20,722 exhaustive
+  per-asset outcomes but omitted the UI subsystem's `Files Checked` footer.
+  Bind completion to the exact domain marker observed in a real run; accept a
+  missing aggregate only when independently counted outcomes cover the full
+  requested denominator; and keep zero-match, incomplete-coverage, duplicate,
+  and nonzero-completion controls failing. C++ struct spelling and adjacent UI
+  output are hypotheses about serialization, not evidence of its wire shape.

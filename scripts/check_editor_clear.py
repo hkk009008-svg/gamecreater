@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from pathlib import Path
 
 
 class ProcessListError(Exception):
@@ -65,23 +64,9 @@ def main(argv: list[str]) -> int:
               "The never-concurrent-editors rule is fail-closed.")
         return 1
     if hits:
-        # Same verdict either way -- an open editor blocks a headless launch,
-        # full stop. What changes is whether the reason is legible. If an MCP
-        # session was declared, the editor is deliberate, and the next
-        # session's obvious move (kill the editor) would silently end work
-        # someone started on purpose.
-        marker = Path(__file__).resolve().parent.parent / ".mcp-session.local"
-        if marker.is_file():
-            print(f"LAUNCH BLOCKED: editor process(es) running: "
-                  f"{', '.join(hits)} -- and an MCP SESSION IS DECLARED "
-                  f"({marker.name}). This editor is deliberate: it is serving "
-                  f"Unreal's MCP tools. Headless and MCP modes are mutually "
-                  f"exclusive by construction. To go headless: "
-                  f"python scripts/mcp_session.py off, then close the editor.")
-            return 1
         print(f"LAUNCH BLOCKED: editor process(es) running: {', '.join(hits)}. "
-              "The never-concurrent-editors rule: close the editor (or have "
-              "the user close it and say go) before a headless launch.")
+              "The never-concurrent-editors rule: use OpenClaw for live-editor "
+              "work, or close the editor before a headless launch.")
         return 1
     print(f"clear: no process matching '{prefix}*'")
     return 0

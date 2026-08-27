@@ -1,0 +1,33 @@
+{
+  "description": "Session orientation and the repository's narrow safety guards.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/session_start.py\"",
+            "commandWindows": "python -c \"import pathlib, runpy, subprocess; root = pathlib.Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()); runpy.run_path(str(root / 'scripts' / 'session_start.py'), run_name='__main__')\"",
+            "timeout": 30,
+            "statusMessage": "Loading game session state"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/hook_pretooluse.py\"",
+            "commandWindows": "python -c \"import pathlib, runpy, subprocess; root = pathlib.Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()); runpy.run_path(str(root / 'scripts' / 'hook_pretooluse.py'), run_name='__main__')\"",
+            "timeout": 30,
+            "statusMessage": "Checking repository safety guards"
+          }
+        ]
+      }
+    ]
+  }
+}

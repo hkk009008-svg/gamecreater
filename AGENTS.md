@@ -74,7 +74,8 @@ Guards mechanize the two rules that were violated most expensively: pushes
 are blocked unless the repo is verified private (or granted in
 `public-grant.txt`), and headless engine launches are blocked while an
 editor is open. Hooks live in `.agents/hooks.json` and `.claude/settings.json`.
-Do not bypass a guard silently — surface it.
+Codex wiring lives in `.codex/hooks.json`; Codex must trust its exact current
+definition before it runs. Do not bypass a guard silently — surface it.
 
 ## Work modes, one paragraph
 

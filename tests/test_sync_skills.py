@@ -1,8 +1,11 @@
+import contextlib
+import io
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -136,12 +139,12 @@ class TestMirrorAndDrift(unittest.TestCase):
 
 class TestSessionRouter(unittest.TestCase):
     def test_session_start_builds_the_generated_surface(self):
-        text = (HARNESS_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        text = (HARNESS_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         start = text.split("## Work from skills")[0]
         self.assertIn("sync_skills.py", start)
 
     def test_work_from_skills_names_the_canonical_tree(self):
-        text = (HARNESS_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        text = (HARNESS_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         work = text.split("## Work from skills")[1].split("## Authorization")[0]
         self.assertIn("`skills/", work)
 
@@ -157,6 +160,28 @@ class TestSessionRouter(unittest.TestCase):
             readme = HARNESS_ROOT / "skills" / tier / "README.md"
             self.assertTrue(readme.is_file(), readme)
             self.assertIn("tombstone", readme.read_text(encoding="utf-8"))
+
+
+class TestCliParsing(unittest.TestCase):
+    def test_help_exits_zero_without_reading_or_writing_the_mirror(self):
+        with (patch.object(ss, "desired_mirror") as desired,
+              patch.object(ss, "write_mirror") as write,
+              contextlib.redirect_stdout(io.StringIO())):
+            with self.assertRaises(SystemExit) as caught:
+                ss.main(["sync_skills", "--help"])
+        self.assertEqual(caught.exception.code, 0)
+        desired.assert_not_called()
+        write.assert_not_called()
+
+    def test_unknown_arg_exits_two_without_reading_or_writing_the_mirror(self):
+        with (patch.object(ss, "desired_mirror") as desired,
+              patch.object(ss, "write_mirror") as write,
+              contextlib.redirect_stderr(io.StringIO())):
+            with self.assertRaises(SystemExit) as caught:
+                ss.main(["sync_skills", "--not-a-real-option"])
+        self.assertEqual(caught.exception.code, 2)
+        desired.assert_not_called()
+        write.assert_not_called()
 
 
 if __name__ == "__main__":

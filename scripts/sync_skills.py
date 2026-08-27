@@ -14,7 +14,7 @@ Usage:
 
 from __future__ import annotations
 
-import re
+import argparse
 import shutil
 import sys
 from pathlib import Path
@@ -22,6 +22,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 from gitignored_config import resolve_gitignored  # noqa: E402
+from game_config import parse_game_config  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CANONICAL = ROOT / "skills"
@@ -32,16 +33,8 @@ GAME_LOCAL = ROOT / "GAME.local.md"
 
 def parse_game_local(text: str) -> tuple[Path | None, str | None]:
     """Return (working_root, slug) from GAME.local.md, None where unset."""
-    root = slug = None
-    m = re.search(r"^\s*-\s*Working root[^:]*:\s*(.+?)\s*$",
-                  text, re.MULTILINE | re.IGNORECASE)
-    if m and not m.group(1).startswith("<"):
-        root = Path(m.group(1).strip())
-    m = re.search(r"^\s*-\s*Short slug[^:]*:\s*(.+?)\s*$",
-                  text, re.MULTILINE | re.IGNORECASE)
-    if m and not m.group(1).startswith("<"):
-        slug = re.sub(r"[^a-z0-9-]", "", m.group(1).strip().lower())
-    return root, slug
+    config = parse_game_config(text)
+    return config.working_root, config.slug
 
 
 def iter_game_skill_bodies(root: Path) -> list[Path]:
@@ -129,8 +122,15 @@ def write_mirror(desired: dict[str, Path], surfaces: tuple[Path, ...] | None = N
 
 
 def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="sync_skills", description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--check", action="store_true",
+        help="report discovery-surface drift without writing anything")
+    args = parser.parse_args(argv[1:])
+
     desired = desired_mirror()
-    if "--check" in argv:
+    if args.check:
         all_problems = []
         for surface in SURFACES:
             problems = drift(desired, current_surface(surface))

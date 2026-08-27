@@ -1,10 +1,11 @@
 """SessionStart orientation: what is true right now, measured, in one block.
 
-Wired to the SessionStart hook in .claude/settings.json. Its stdout is
-injected into the session's context, so this is the first thing a fresh
-session sees -- before it reads anything, before it decides anything.
+Wired to the SessionStart hooks in .claude/settings.json and
+.codex/hooks.json. Its stdout is injected into the session's context, so this
+is the first thing a fresh session sees -- before it reads anything, before it
+decides anything.
 
-WHY IT EXISTS. CLAUDE.md asks the agent to perform a three-step orientation
+WHY IT EXISTS. AGENTS.md asks the agent to perform a short orientation
 ritual by hand at every session start, and the checkpoint ritual by hand at
 every hold. Both depend on the agent REMEMBERING. Measured failures of
 exactly that dependency, all on 2026-08-13/14:
@@ -42,7 +43,12 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS))
+
+from game_config import load_game_config
+
+ROOT = SCRIPTS.parent
 TODAY = date.today()
 WARN: list[str] = []
 LINES: list[str] = []
@@ -93,34 +99,25 @@ def age_str(n: int | None) -> str:
 # 1. the game binding
 # --------------------------------------------------------------------------
 def game_binding() -> dict:
-    p = ROOT / "GAME.local.md"
-    txt = read(p)
-    if not txt:
+    config = load_game_config(ROOT / "GAME.local.md")
+    if not config.source.is_file():
         warn("GAME.local.md is MISSING - copy templates/GAME.local.template.md "
              "and confirm the paths with the user before doing anything.")
         return {}
-    g: dict = {}
-    # Colons are NOT a reliable delimiter on either side here, and both
-    # obvious readings were wrong on run 1 and run 2:
-    #   lazy  [^:]*  stops at the colon INSIDE "Project root (engine
-    #                project: content, ...)" and captures "content,"
-    #   greedy [^\n]* runs past it to the colon in the VALUE, "D:/Kurogane",
-    #                and captures "/Kurogane"
-    # A Windows drive path contains a colon, so the last token on the line is
-    # the only thing that is actually the value. Both misreads were caught by
-    # the does-this-path-exist check below, which is the reason it is there.
-    for key, label in (("slug", "Short slug"), ("working", "Working root"),
-                       ("project", "Project root"), ("now", "NOW.md"),
-                       ("inbox", "Lessons inbox")):
-        m = re.search(rf"^-\s*{re.escape(label)}[^\n]*$", txt, re.M)
-        if m:
-            parts = m.group(0).split()
-            if parts:
-                g[key] = parts[-1].strip().strip("`")
-    m = re.search(r"Game name:\s*(.+)", txt)
-    if m:
-        g["name"] = m.group(1).strip()
-    for k in ("working", "project"):
+    g = {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in {
+            "name": config.name,
+            "slug": config.slug,
+            "working": config.working_root,
+            "project": config.project_root,
+            "engine": config.engine_root,
+            "now": config.now,
+            "inbox": config.lessons,
+        }.items()
+        if value is not None
+    }
+    for k in ("working", "project", "engine"):
         if k in g and not Path(g[k]).exists():
             warn(f"{k} root {g[k]} does not exist on this machine")
     return g
@@ -230,9 +227,6 @@ def inbox_block(g: dict) -> None:
         out(f"Lessons/{label}: {n} entries"
             + (f", last distill {mark} ({age_str(since)})" if mark
                else ", NO distill marker") + ao)
-        if since is not None and since >= 7:
-            warn(f"{label} inbox has not been distilled in {since}d "
-                 f"({n} entries) - run distill-an-arc")
         if mark is None and n > 10:
             warn(f"{label} inbox has {n} entries and no distill marker")
 
@@ -254,8 +248,9 @@ def repo_block(g: dict) -> None:
         ahead = behind = None
         if counts and "\t" in counts:
             behind, ahead = (int(x) for x in counts.split("\t")[:2])
-        dirty = len([ln for ln in git(["status", "--porcelain"],
-                                      path).splitlines() if ln.strip()])
+        dirty = len([ln for ln in git(
+            ["status", "--porcelain", "--untracked-files=all"], path
+        ).splitlines() if ln.strip()])
         bits = [f"{label}@{branch}"]
         if ahead:
             bits.append(f"{ahead} UNPUSHED")
@@ -275,6 +270,28 @@ def repo_block(g: dict) -> None:
 # 5. guard health -- a guard that is not running is not a guard
 # --------------------------------------------------------------------------
 def guard_block() -> None:
+    codex = ROOT / ".codex" / "hooks.json"
+    try:
+        data = json.loads(read(codex))
+        hooks = data.get("hooks", {})
+        pre = hooks.get("PreToolUse", [])
+        start = hooks.get("SessionStart", [])
+        matcher = "|".join(str(entry.get("matcher") or "") for entry in pre)
+        commands = "\n".join(
+            str(hook.get("commandWindows") or hook.get("command") or "")
+            for entries in (pre, start)
+            for entry in entries
+            for hook in entry.get("hooks", []))
+        out(f"Codex hook file: PreToolUse={matcher or 'MISSING'}; "
+            f"SessionStart={'configured' if start else 'MISSING'}; "
+            "trust/running state not observable here")
+        if "Bash" not in matcher or "hook_pretooluse.py" not in commands:
+            warn("Codex PreToolUse is not wired to the repository guard")
+        if not start or "session_start.py" not in commands:
+            warn("Codex SessionStart is not wired to session orientation")
+    except Exception as e:                                      # noqa: BLE001
+        warn(f"could not read .codex/hooks.json: {e}")
+
     s = ROOT / ".claude" / "settings.json"
     try:
         data = json.loads(read(s))
@@ -306,8 +323,7 @@ def guard_block() -> None:
 
 
 # --------------------------------------------------------------------------
-# 5b. engine mode -- the two modes are mutually exclusive, and which one is
-#     live decides whether the next engine action is even possible
+# 5b. engine state -- an open editor blocks every headless launch
 # --------------------------------------------------------------------------
 def engine_block() -> None:
     try:
@@ -320,41 +336,38 @@ def engine_block() -> None:
     ed = {True: "editor running", False: "no editor",
           None: "COULD NOT ENUMERATE"}[m.editor_running]
     out(f"Engine: {m.name} mode ({ed})")
-    if m.stale:
-        warn("MCP session declared but NO editor is running - every MCP tool "
-             "call will fail to connect. Run: python scripts/mcp_session.py off")
-    if m.undeclared_editor:
-        warn("an editor is open and no MCP session is declared - headless "
-             "captures/probes/sweeps are blocked and nothing records why")
-    if m.declared_mcp and m.editor_running:
-        warn("MCP mode is live, so EVERY headless capture, probe and sweep is "
-             "blocked until it ends (mcp_session.py off + close the editor)")
+    if m.editor_running:
+        warn("an editor is open, so EVERY headless capture, probe and sweep is "
+             "blocked; use OpenClaw for live-editor work or close the editor")
+    elif m.editor_running is None:
+        warn("editor process state is unknown, so headless launches fail closed")
 
 
 # --------------------------------------------------------------------------
 # 6. skill surface -- both mirrors are gitignored, so drift is invisible
 # --------------------------------------------------------------------------
 def skills_block() -> None:
-    canon = len(list((ROOT / "skills").glob("*/*/SKILL.md")))
-    surfaces = {"claude": ROOT / ".claude" / "skills",
-                "agents": ROOT / ".agents" / "skills"}
-    counts = {k: len(list(v.glob("*/SKILL.md"))) for k, v in surfaces.items()}
-    out(f"Skills: {canon} canonical, mirrored " +
+    import sync_skills                                      # noqa: PLC0415
+    desired = sync_skills.desired_mirror()
+    counts = {}
+    problems = []
+    for surface in sync_skills.SURFACES:
+        name = surface.parent.name.lstrip(".")
+        counts[name] = len(sync_skills.current_surface(surface))
+        problems.extend(
+            f"{name}: {p}" for p in sync_skills.drift(
+                desired, sync_skills.current_surface(surface)))
+    out(f"Skills: {len(desired)} active, mirrored " +
         ", ".join(f"{k}={v}" for k, v in counts.items()))
-    for k, v in counts.items():
-        if v == 0:
-            warn(f"skill surface '{k}' is EMPTY - run "
-                 f"python scripts/sync_skills.py (mirrors are gitignored, so "
-                 f"a fresh clone has zero discoverable skills)")
-        elif v < canon:
-            warn(f"skill surface '{k}' has {v} < {canon} canonical - out of sync")
+    if problems:
+        warn("skill discovery surface drift - run python scripts/sync_skills.py; "
+             + "; ".join(problems[:4]))
 
-    routed = len(re.findall(r"`([a-z][a-z0-9-]+)`", read(ROOT / "CLAUDE.md")))
     names = {p.parent.name for p in (ROOT / "skills").glob("*/*/SKILL.md")}
-    claude_txt = read(ROOT / "CLAUDE.md")
-    unrouted = sorted(n for n in names if n not in claude_txt)
+    router = read(ROOT / "AGENTS.md")
+    unrouted = sorted(n for n in names if n not in router)
     if unrouted:
-        warn(f"CLAUDE.md routes {len(names) - len(unrouted)} of {len(names)} "
+        warn(f"AGENTS.md routes {len(names) - len(unrouted)} of {len(names)} "
              f"skills; unrouted: {', '.join(unrouted)}")
 
 
@@ -391,7 +404,7 @@ def main() -> int:
             out(f"  ! {w}")
     out()
     out("Skills are the default, not an option. Authorization boundary in "
-        "CLAUDE.md is per-act: push, merge, DCC launch, canonical Content "
+        "AGENTS.md is per-act: push, merge, DCC launch, canonical Content "
         "writes, publishing, deletions.")
     print("\n".join(LINES))
     return 0

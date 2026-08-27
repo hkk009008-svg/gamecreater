@@ -9,7 +9,7 @@ and the blindness would have been re-discovered the expensive way.
 
 The rule keys on the tool NAME, because an MCP payload's arguments are
 server-defined and cannot be parsed generically. It is narrow on purpose:
-it blocks the acts CLAUDE.md reserves to the user, and it is not a general
+it blocks the acts AGENTS.md reserves to the user, and it is not a general
 MCP firewall. These tests pin both halves -- that reserved names are
 blocked, and that ordinary MCP calls still pass, since a guard that blocked
 everything would simply be turned off.
@@ -72,8 +72,26 @@ class TestReservedActsBlocked(unittest.TestCase):
 
     def test_block_message_points_at_the_authorization_rule(self):
         _, err = run(payload("mcp__git__push"))
+        self.assertIn("AGENTS.md", err)
         self.assertIn("reserves", err)
         self.assertIn("authorize", err)
+
+    def test_openclaw_mutators_are_not_permanently_blocked_by_name(self):
+        # Authorization is decided from the exact requested effect, executor,
+        # and target before the call. This stateless hook cannot see that
+        # scope; blocking the name would also make an authorized live-editor
+        # change impossible.
+        for name in (
+                "mcp__openclaw_unreal__actor_create",
+                "mcp__openclaw_unreal__actor_delete",
+                "mcp__openclaw_unreal__actor_setproperty",
+                "mcp__openclaw_unreal__transform_setposition",
+                "mcp__openclaw_unreal__transform_setrotation",
+                "mcp__openclaw_unreal__transform_setscale",
+                "mcp__openclaw_unreal__level_save",
+                "mcp__openclaw_unreal__console_execute"):
+            rc, err = run(payload(name))
+            self.assertEqual(rc, 0, f"{name} should reach policy: {err}")
 
 
 class TestOrdinaryMcpStillAllowed(unittest.TestCase):
@@ -85,6 +103,20 @@ class TestOrdinaryMcpStillAllowed(unittest.TestCase):
                      "mcp__unreal-mcp__call_tool",
                      "mcp__visualize__show_widget",
                      "mcp__ccd_session__mark_chapter"):
+            rc, err = run(payload(name))
+            self.assertEqual(rc, 0, f"{name} should pass: {err}")
+
+    def test_openclaw_reads_and_play_controls_pass(self):
+        for name in (
+                "mcp__openclaw_unreal__level_getcurrent",
+                "mcp__openclaw_unreal__actor_find",
+                "mcp__openclaw_unreal__actor_getall",
+                "mcp__openclaw_unreal__actor_getdata",
+                "mcp__openclaw_unreal__transform_getposition",
+                "mcp__openclaw_unreal__editor_play",
+                "mcp__openclaw_unreal__editor_stop",
+                "mcp__openclaw_unreal__editor_getstate",
+                "mcp__openclaw_unreal__console_getlogs"):
             rc, err = run(payload(name))
             self.assertEqual(rc, 0, f"{name} should pass: {err}")
 

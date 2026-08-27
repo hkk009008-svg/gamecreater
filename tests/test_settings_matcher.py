@@ -23,11 +23,14 @@ It is a config test, not a unit test, because the defect lived in config.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS = ROOT / ".claude" / "settings.json"
+CODEX_HOOKS = ROOT / ".codex" / "hooks.json"
 
 # Every tool in this harness that can execute a shell command string.
 REQUIRED = ("Bash", "PowerShell", "Monitor")
@@ -71,6 +74,48 @@ class TestPreToolUseMatcher(unittest.TestCase):
                 self.assertEqual(h.get("type"), "command")
                 self.assertIn("run_pretooluse", h.get("command", ""),
                               "the matcher must route to the dispatcher")
+
+
+class TestCodexHooks(unittest.TestCase):
+    def test_session_start_and_guard_reuse_repository_scripts(self):
+        self.assertTrue(CODEX_HOOKS.is_file(), f"missing {CODEX_HOOKS}")
+        data = json.loads(CODEX_HOOKS.read_text(encoding="utf-8"))
+        hooks = data.get("hooks", {})
+        start = hooks.get("SessionStart") or []
+        pre = hooks.get("PreToolUse") or []
+        self.assertTrue(start, "Codex sessions are not loading current game state")
+        self.assertTrue(pre, "Codex tool calls are not reaching safety guards")
+        pre_matchers = "|".join(str(e.get("matcher") or "") for e in pre)
+        self.assertIn("Bash", pre_matchers)
+        self.assertIn("mcp__.*", pre_matchers)
+        start_commands = "\n".join(
+            str(h.get("commandWindows") or h.get("command") or "")
+            for entry in start for h in (entry.get("hooks") or []))
+        pre_commands = "\n".join(
+            str(h.get("commandWindows") or h.get("command") or "")
+            for entry in pre for h in (entry.get("hooks") or []))
+        self.assertIn("session_start.py", start_commands)
+        self.assertIn("hook_pretooluse.py", pre_commands)
+        self.assertIn("git", start_commands.lower(),
+                      "hook must resolve this checkout, not assume one path")
+        self.assertIn("git", pre_commands.lower(),
+                      "hook must resolve this checkout, not assume one path")
+
+    @unittest.skipUnless(os.name == "nt", "commandWindows is a Windows entry")
+    def test_windows_session_command_runs_at_real_entry(self):
+        data = json.loads(CODEX_HOOKS.read_text(encoding="utf-8"))
+        command = data["hooks"]["SessionStart"][0]["hooks"][0][
+            "commandWindows"]
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SESSION ORIENTATION", result.stdout)
 
 
 class TestAntigravityShimPresent(unittest.TestCase):
