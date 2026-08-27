@@ -661,3 +661,10 @@ The next sweep starts below this line.
   requested denominator; and keep zero-match, incomplete-coverage, duplicate,
   and nonzero-completion controls failing. C++ struct spelling and adjacent UI
   output are hypotheses about serialization, not evidence of its wire shape.
+- 2026-08-27 — `GIT CHECK-IGNORE` SUCCESS DOES NOT BY ITSELF MEAN IGNORED.
+  Git 2.55 can exit zero with `-v --no-index` while printing the winning
+  negation rule for a path that `git status` correctly lists as untracked. Read
+  the rule: a leading `!` means the path was re-included. Prove the usable
+  boundary with `git ls-files --others --exclude-standard` and an exact-path
+  dry-run add; treat exit one with no output only as “no matching rule,” not as
+  a complete admission proof.
