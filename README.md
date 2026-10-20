@@ -14,7 +14,7 @@ python scripts/roblox_team.py status
 python scripts/roblox_team.py check
 ```
 
-The [team operating guide](docs/roblox-team.md) defines the five roles, exact file
+The [team operating guide](docs/roblox-team.md) defines production roles, exact file
 assignments, one Studio operator and the acceptance stages. Use the
 [task template](templates/ROBLOX-TASK.template.md) for delegation and the
 [handoff template](templates/ROBLOX-HANDOFF.template.md) for release delivery.
@@ -40,6 +40,20 @@ receipts, tests, Studio observations and lessons in the working Roblox game.
 Local team/strikepoint-system.local.md and team/strikepoint-pipeline.local.md
 dossiers explain that implementation and its limits. Recheck linked files before
 acting: they describe dated observations, not permanent game state.
+
+The [Development Mapping department](docs/roblox-development-network.md) maps
+who owns each piece, what depends on it, how work passes between steps and which
+evidence still blocks the result. Its separate offline engine checks an authored
+relation graph, traces connections, compares snapshots and writes new reports.
+Use the [mapping intake](templates/ROBLOX-DEVELOPMENT-MAP.template.md) for a
+requested process/order map or a substantial dependency question:
+
+```powershell
+python scripts/roblox_development_map.py --help
+```
+
+The mapping department reads the game and maintains its own harness records.
+Game retains integration, dispatch, Studio and active state ownership.
 
 ```powershell
 python scripts/roblox_team.py inventory

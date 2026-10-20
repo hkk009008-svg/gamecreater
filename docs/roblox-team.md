@@ -38,6 +38,7 @@ a small change does not require five running agents.
 | Client and presentation | Input, HUD, camera, animations, effects and responsive layouts | Own assigned client files. Request shared-interface changes through the integrator. |
 | World, art and audio | Map builders, local asset preparation, lighting and sound presentation | Own named world/presentation files. External asset insertion, generation, upload and purchases depend on their actual authorization. |
 | QA and release | Relevant regression checks, saved-build playtests, evidence review and publishing handoff | Review implementation read-only unless assigned a distinct fix. Return reproducible failures to the file owner. |
+| Development Mapping | Explain owners, prerequisites, production order, runtime relations and separate evidence stages from dated observations | Maintain assigned harness maps/reports; game source, Studio and active owner state stay read-only. The integrator keeps task order and dispatch. |
 
 Role names do not grant blanket ownership of a directory. Use
 [`ROBLOX-TASK.template.md`](../templates/ROBLOX-TASK.template.md) for substantial
@@ -54,6 +55,14 @@ build; a worker's green result does not establish integration success.
 Use subagents for bounded parallel tasks. Creating a separate user-owned chat
 and sending messages to another chat follow the product's tools and the user's
 authorization. A team role does not authorize paid providers or external agents.
+
+Use the [Development Mapping department](roblox-development-network.md) when a
+requested order/progress map or substantial multi-owner dependency needs an
+explicit model. Its [intake](../templates/ROBLOX-DEVELOPMENT-MAP.template.md)
+and offline engine separate scope levels, people, production steps, runtime
+relations and evidence stages. Refresh affected relations after meaningful
+change and return discrepancies to their owner. Small, clear tasks can stay in
+the existing contract; mapping does not require another permanent worker.
 
 ## Size the team to the work
 

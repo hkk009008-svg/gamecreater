@@ -20,6 +20,13 @@ adding machinery. The [team guide](docs/roblox-team.md) and
 [engine contracts](docs/roblox-workflow-engines.md) make this value operational.
 The [core workflow checkpoint](team/core-workflow-checkpoint.md) records this adoption.
 
+Use the [Development Mapping department](docs/roblox-development-network.md)
+for requested process/order maps and substantial work whose owners, dependencies
+or evidence stages need clarification. Its offline engine checks dated relation
+graphs, traces declared connections and compares snapshots. Keep the map
+proportional to the question, refresh affected evidence after meaningful change,
+and leave active game/state writes and dispatch with their existing owner.
+
 ## Start every session
 
 1. Read GAME.local.md: engine, project roots, integration owner and exact grants.

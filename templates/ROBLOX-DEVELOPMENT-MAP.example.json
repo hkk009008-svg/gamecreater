@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "title": "Fictional example - replace every identity and claim",
+  "factsCutoffUtc": "2000-01-01T00:00:00Z",
+  "builtUtc": "2000-01-01T00:00:00Z",
+  "route": {
+    "game": "EXAMPLE ONLY",
+    "threadId": "UNASSIGNED",
+    "hostId": "UNASSIGNED",
+    "task": "EXAMPLE ONLY"
+  },
+  "candidate": {
+    "id": null,
+    "sha256": null,
+    "finalVerdict": "UNKNOWN",
+    "reason": "This template has no observed game result.",
+    "correction": "No work is assigned by this example."
+  },
+  "basisLegend": [
+    "observed source",
+    "recorded assignment",
+    "prescribed workflow",
+    "reviewed evidence",
+    "proposed work",
+    "recorded pending"
+  ],
+  "nodes": [
+    {
+      "id": "candidate",
+      "kind": "artifact",
+      "label": "Example candidate",
+      "status": "UNKNOWN - example only",
+      "owner": "UNASSIGNED",
+      "reads": "An actual task's reviewed inputs",
+      "output": "A named artifact with its own evidence",
+      "evidence": ["example_ref"],
+      "basis": "prescribed workflow"
+    },
+    {
+      "id": "review",
+      "kind": "evidence",
+      "label": "Example source review",
+      "status": "NOT RUN - example only",
+      "owner": "UNASSIGNED",
+      "reads": "Exact candidate and relevant controls",
+      "output": "Scoped verdict; no acceptance or authority is inferred",
+      "evidence": ["example_ref"],
+      "basis": "prescribed workflow"
+    }
+  ],
+  "views": [
+    {
+      "id": "example",
+      "label": "Example evidence relationship",
+      "dimension": "evidence",
+      "context": "Fictional example; replace with the actual task and evidence.",
+      "rows": [["review", "candidate"]],
+      "edges": [
+        {
+          "source": "review",
+          "target": "candidate",
+          "kind": "checks",
+          "relation": "inspects selected candidate inputs",
+          "feedback": false,
+          "evidence": ["example_ref"]
+        }
+      ]
+    }
+  ],
+  "crossViewEdges": [],
+  "evidence": {
+    "example_ref": {
+      "path": "C:/REPLACE-WITH-ACTUAL-LOCAL-EVIDENCE.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "readUtc": "2000-01-01T00:00:00Z",
+      "basis": "Placeholder only; this file was not read or fingerprinted."
+    }
+  },
+  "limits": [
+    "This is a fictional schema example, not a game snapshot or an assignment.",
+    "Replace all example times, identities, hashes, references and claims before operational use.",
+    "A structural check cannot establish the truth, acceptance or authority of a declared relation."
+  ]
+}

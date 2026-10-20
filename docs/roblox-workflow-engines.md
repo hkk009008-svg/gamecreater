@@ -1,7 +1,7 @@
 # Specialized Roblox workflow engines
 
-This is the design contract for reusable modification, debugging and visual
-workflows. Task contracts, candidate review and the visual workbench are
+This is the design contract for reusable modification, debugging, visual and
+development-mapping workflows. Task contracts, candidate review and the visual workbench are
 included in the committed baseline. Saved-source parity and runtime inspection
 are local extractions requiring separate inclusion; confirm their availability
 before using them. A unified runner and new game execution adapters are proposals;
@@ -18,6 +18,35 @@ worker has an exact file boundary, dependencies, acceptance checks and handback.
 Independent review can run alongside implementation where its inputs are stable;
 shared writes and Studio transitions stay serialized under their owner. The
 [team guide](roblox-team.md) defines task sizing and worker-chat coordination.
+
+## Development mapping engine
+
+The [Development Mapping department](roblox-development-network.md) specializes
+process, order, responsibility and progress mapping as a service to the team.
+Its offline [engine](../scripts/roblox_development_map.py) implements explicit
+graph checking, bounded relation tracing, snapshot comparison and new local
+Markdown reports. It is separate from game execution and task dispatch.
+
+**Input:** a dated graph with route/task/candidate identity, stable node IDs,
+owners, input/output descriptions, typed relations, supporting evidence and
+limits. Distinguish scope, people, production, runtime and evidence views.
+
+**Action:** read supporting source/contracts/reports, model only demonstrated
+relations or labelled proposals, check references and declared types, optionally
+verify current file identity, and compare affected relations with the previous
+useful snapshot. The engine checks the authored model; semantic extraction and
+acceptance still require reading the evidence and proportional review.
+
+**Output:** an inspectable relation network and stage-specific results, directed
+traces, explicit snapshot changes, discrepancies and the next responsible owner.
+Keep old candidate results distinct from a new approved correction. Failed
+visual acceptance can return to implementation while narrower source/runtime
+results remain valid for the old bytes. No result grants scope or starts a leaf.
+
+**Limits:** declared relations are not authenticated calls, proven impact or a
+schedule. Sequential hashes are not an atomic snapshot. No source extraction,
+chat dispatch, Studio/build operation, acceptance promotion or external effect
+is performed. Use existing task, review and visual tools for those workflows.
 
 ## Modification engine contract
 

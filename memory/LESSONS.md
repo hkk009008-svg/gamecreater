@@ -751,3 +751,15 @@ The next sweep starts below this line.
   comparable. Preserve unknown settings and distinguish signature inspection
   from playback verification. Evidence: tests/test_roblox_visual_packet.py and
   team/visual-example-evidence-review-final-20261020T144311548193Z.local.json.
+
+- 2026-10-21 - QUALIFY CROSS-API FILE METADATA BEFORE CALLING A READ STALE.
+  The development-map reader rejected a stable rewritten map because Windows
+  Python 3.14 Path.stat and descriptor fstat returned different ctime values.
+  Device, inode, size and mtime agreed; a newly created template did not expose
+  the mismatch. Compare semantics with discriminating reads before treating an
+  instrument error as concurrent source change. Keep bounded reads, stable
+  identity checks, streaming hashes and explicit non-atomic limits. The original
+  draft digest/output was not retained; the original failure is author-reported,
+  while the corrected actual-map replay is saved. This is an instrument case,
+  not a Game defect or a claim about every Windows/Python version. Evidence:
+  team/debug-case-development-map-read-identity-20261021.local.json.

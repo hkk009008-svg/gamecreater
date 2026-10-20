@@ -15,6 +15,7 @@ task records. Revisit a decision when its stated condition changes.
 | Reviewer verdicts never grant publication, purchases, destruction or Git outward actions | Correctness and authority for an effect are separate facts | The user supplies applicable authority, not a change to this principle |
 | Scale concurrency to independent ready work and integration capacity | A small effective team avoids duplicate writers and idle coordination; user-authorized worker chats use exact task boundaries | Observed dependency, waiting or integration costs justify changing the team size |
 | Derive specialized modification/debugging engines from actual cases and controls | Reusable methods should retain proven mechanisms, failed hypotheses, instrument limits and reproducible results | Repeated new production evidence supports a new adapter or changes its supported contract |
+| Specialize Development Mapping as a separate team service and offline engine | Stable owners, typed relations and candidate-specific evidence make process/order/progress inspectable without taking over integration or QA | Demonstrated recurring work justifies a new supported adapter; automatic source extraction and scheduling remain proposals |
 
 Review methods were adapted on 2026-10-20 from the user's governance-os at the
 pinned revision in the [adoption record](../docs/governance-os-adoption.md).

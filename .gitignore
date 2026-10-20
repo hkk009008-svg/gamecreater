@@ -18,3 +18,5 @@ __pycache__/
 *.rbxmx
 # Portable visual review packets contain copied game evidence, not harness source.
 team/visual-packets/
+# Dated development maps contain local game identities and evidence references.
+team/development-maps/
