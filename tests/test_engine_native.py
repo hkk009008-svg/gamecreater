@@ -603,13 +603,15 @@ class TestNativeCli(unittest.TestCase):
         self.assertFalse(automation.needs_rhi)
         self.assertEqual(validation.cmd, "data-validation")
 
-        with patch.object(er, "cmd_native", return_value=9) as command:
+        with (patch.object(er, "load_game_config", return_value=GameConfig(source=Path("fixture.md"))),
+              patch.object(er, "cmd_native", return_value=9) as command):
             self.assertEqual(er.main([
                 "engine_run", "automation", "Project.Native"]), 9)
         command.assert_called_once()
         self.assertEqual(command.call_args.args[1], "automation")
 
-        with patch.object(er, "cmd_native", return_value=8) as command:
+        with (patch.object(er, "load_game_config", return_value=GameConfig(source=Path("fixture.md"))),
+              patch.object(er, "cmd_native", return_value=8) as command):
             self.assertEqual(er.main(["engine_run", "data-validation"]), 8)
         command.assert_called_once()
         self.assertEqual(command.call_args.args[1], "data-validation")

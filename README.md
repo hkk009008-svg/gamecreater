@@ -1,83 +1,81 @@
-# gamecreater
+# Roblox game-making team
 
-`gamecreater` is the small control repository for long-running Unreal game
-work. The game project and generated evidence live in the paths configured for
-the active game; this repository keeps only the shared router, skills, guards,
-and launch tools.
+gamecreater is the control repository for a Roblox game team. It coordinates
+design, server gameplay, client/UI, world/art/audio, QA and release work while
+each game keeps its own source, saved places and evidence.
 
-## Start here
-
-- `AGENTS.md` is the authoritative workflow and authorization boundary.
-- `GAME.local.md` binds this checkout to the active game, engine, project,
-  working root, and standing grants. Copy `templates/GAME.local.template.md`
-  when setting up a new machine.
-- The active game's `NOW.md`, whose path is recorded in `GAME.local.md`, is the
-  current plan, register, blockers, and next executable action.
-
-Claude runs session orientation automatically. After a checkout or any change
-to `.codex/hooks.json`, review and trust that exact definition with Codex's
-`/hooks` command; a configured file is not proof that Codex is running it.
-Orientation can always be run directly:
+Start with [AGENTS.md](AGENTS.md), [team/NOW.md](team/NOW.md) and machine-local
+GAME.local.md. The current project is Strikepoint. The existing Shooter chat
+retains ownership of its active release pass.
 
 ```powershell
 python scripts/session_start.py
+python scripts/roblox_team.py status
+python scripts/roblox_team.py check
 ```
 
-## Unreal entry points
+The [team operating guide](docs/roblox-team.md) defines the five roles, exact file
+assignments, one Studio operator and the acceptance stages. Use the
+[task template](templates/ROBLOX-TASK.template.md) for delegation and the
+[handoff template](templates/ROBLOX-HANDOFF.template.md) for release delivery.
+Agents work in parallel where file/runtime ownership permits; one integrator
+assembles and tests the playable result.
 
-Use the supervised launcher instead of constructing an Unreal command line:
+[Review and decisions](docs/roblox-governance.md) adds proportional review and
+candidate checks adapted from your governance-os repository. Substantial
+changes can bind a review to exact source, saved-build and evidence bytes;
+changed or missing files invalidate the snapshot. Ordinary local edits keep
+focused checks. The [adoption record](docs/governance-os-adoption.md) gives the
+pinned revision, selections and limits; [team decisions](team/DECISIONS.md)
+keep the durable rationale.
 
 ```powershell
-python scripts/engine_run.py mode
-python scripts/engine_run.py automation "^Exact.Test.Name$"
-python scripts/engine_run.py headless path\to\probe.py --artifact path\to\report.json
-python scripts/engine_run.py data-validation
-python scripts/engine_run.py epic-mcp-check
+python scripts/roblox_review.py --help
 ```
 
-- **Live editor:** open the configured Unreal project, then use Codex's
-  OpenClaw stdio bridge for inspection, PIE control, and reversible tuning.
-  Canonical mutations still require the exact authorization named in
-  `GAME.local.md`. An open editor intentionally blocks headless runs.
-- **Automation:** run one bounded native Unreal test or prefix after a change.
-  A zero-match selector is a failure, not a green empty run.
-- **Headless:** close the editor first, then use `engine_run.py headless` for
-  probes, captures, and sweeps. CPU probes default to `-nullrhi`; use
-  `--needs-rhi` for pixels. With one `--artifact` path, the child receives the
-  same path as `ENGINE_RUN_ARTIFACT` and the supervisor verifies its fresh bytes.
-- **Data Validation:** run the stock whole-project asset scan at checkpoints,
-  not after every edit; large vendor-heavy projects can take many minutes.
-- **Optional Epic HTTP MCP:** `.mcp.json` is an internal endpoint descriptor
-  read by these local scripts; it does not register a Codex MCP server. It
-  describes Epic's separate ModelContextProtocol HTTP surface. It is not
-  OpenClaw and is not required for Codex live-editor work. `engine_run.py
-  epic-mcp-check` only checks this optional endpoint.
+## Methods come from the working game
 
-Every real supervised launch holds one cross-process lease through verdict and
-sidecar publication, so two agents cannot start Unreal together. `--dry-run`
-validates the command without requiring the editor to be closed or taking that
-lease.
+The initial method set comes from the actual source, build wrappers, scope
+receipts, tests, Studio observations and lessons in the working Roblox game.
+Local team/strikepoint-system.local.md and team/strikepoint-pipeline.local.md
+dossiers explain that implementation and its limits. Recheck linked files before
+acting: they describe dated observations, not permanent game state.
 
-Keep the verification ladder proportional: use one registered native Automation
-selector when the changed subsystem has one; otherwise use a pure test plus one
-focused probe. Use Data Validation at a checkpoint, and UAT/Gauntlet packaged
-smoke only when packaging work begins.
-Add no new orchestration layer until one of those native paths cannot express
-the required check.
+```powershell
+python scripts/roblox_team.py inventory
+```
 
-## Skills and tests
+This writes a fresh ignored JSON index of project files, sizes/timestamps,
+source/tooling/document fingerprints, source mappings and evidence-directory
+counts. It does not build, play, publish, upload, purchase or modify the game.
+An inventory helps navigate and compare evidence; it does not establish that
+every artifact was read or every feature works. Reusable methods live in skills/
+and docs/; volatile project data stays local.
 
-Canonical skills live in `skills/`; game-specific skills come from the active
-working root. Check the generated discovery surfaces first, and rewrite them
-only when drift is reported:
+## Skills and checks
+
+skills/roblox/build-roblox-game/SKILL.md is the Roblox entry.
+[Skill routing](docs/skill-routing.md) preserves shared methods and inactive
+Unreal skills without mixing engine procedures.
 
 ```powershell
 python scripts/sync_skills.py --check
-python scripts/sync_skills.py
-```
-
-Run the repository test suite with:
-
-```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
+
+Use the actual game's reviewed build wrapper and current receipts. Do not replay
+a historical build command or arbitrary fixture, or assume the newest place is
+an accepted release. Source checks, saved builds, cold runtime, independent
+clients, emulation, physical devices and user acceptance answer different questions.
+
+## Existing projects and permissions
+
+The old local binding is in the conversion backup. Historical Unreal tools,
+skills and projects remain separate and inactive. Unreal entry commands refuse
+execution while a Roblox game is bound. Rebinding a previous game requires its
+own current task and grants.
+
+Publication, account changes, purchases, uploads, paid providers and Git outward
+actions require exact authority. The team protocol coordinates file/Studio
+ownership; it is not a runtime lock. The existing .codex/hooks.json is retained;
+its presence does not prove the app currently trusts or runs it.

@@ -1,0 +1,14 @@
+{
+  "task": "replace-with-task-id",
+  "author": "replace-with-implementation-owner",
+  "risk": "material-behavior",
+  "inputs": [
+    {"root": "game", "path": "src"},
+    {"root": "game", "path": "default.project.json"},
+    {"root": "game", "path": "build/REPLACE-CANDIDATE/Strikepoint.rbxlx"}
+  ],
+  "evidence": [
+    {"root": "game", "path": "evidence/REPLACE-RUN/build-receipt.json"},
+    {"root": "game", "path": "evidence/REPLACE-RUN/behavior-results.json"}
+  ]
+}

@@ -702,3 +702,33 @@ The next sweep starts below this line.
   read operations, publish evidence with exclusive creation, accept only the
   normalized top-level success vocabulary, and require nested execution to be
   exactly `COMPLETE`. A denylist grows one incident behind its input language.
+
+- 2026-10-20 - ENGINE IDENTITY PRECEDES PROCESS INFERENCE. Converting this
+  harness from an Unreal binding to a working Roblox project showed that
+  absence of UnrealEditor would otherwise be reported as HEADLESS readiness
+  for the wrong engine. Parse Engine explicitly, branch orientation before
+  Unreal probes, and reject legacy launch/channel routes for Roblox. Two CLI
+  dispatch tests also depended on the machine's live Unreal binding; use an
+  explicit legacy fixture so their intended positive control survives a real
+  project switch. Evidence: tests/test_roblox_binding.py and the 383-test
+  setup receipt at team/setup-validation-20261020.local.json.
+- 2026-10-20 - EXTRACT METHODS FROM CURRENT INPUTS AND SAVED RECEIPTS SEPARATELY.
+  The working Roblox project's NOW still named a thirteen-layer illustrated
+  build while newer source/build wrappers and a fifteen-layer launch receipt
+  existed, followed by a sixteenth shop layer. Source already contained shop
+  corrections absent from the inspected saved candidate. Keep an indexed,
+  dated project dossier, compare exact input/place hashes, and let the live
+  owner reconcile NOW; do not turn the newest directory or old successful
+  receipt into current integration acceptance. The historical Studio request
+  queue also used a hardcoded session and max+1 filenames, so preserve its
+  lesson rather than promote it as a concurrent team dispatcher. Evidence:
+  team/strikepoint-system.local.md and team/strikepoint-pipeline.local.md.
+- 2026-10-20 - A HASH STRING IS NOT AN EVIDENCE CHECK. Researching governance-os
+  found an explicit allowance for unvalidated bare SHA256 evidence references.
+  Adopt the exact-candidate method by opening and hashing the actual selected
+  source, saved artifact and evidence, and reject changed membership or binding.
+  The local negative control changes source bytes without changing size/mtime;
+  another changes a passing evidence file to report a failure. Both invalidate
+  the candidate. A content match still does not prove the report is truthful,
+  a reviewer identity is authenticated, or gameplay ran. Evidence:
+  tests/test_roblox_review.py and team/governance-adoption-tests-20261020.local.json.

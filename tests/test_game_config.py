@@ -16,9 +16,20 @@ class TestGameConfig(unittest.TestCase):
         text = """# local binding
 - Game name: Example Game
 - Short slug (used for mirroring): My Game!
+- Current phase: RST-02
 - Working root (scripts, docs — a git repo): D:/Work Root
 - Project root (engine project: content, saved): D:/Project Root
+- Expected uproject identity: D:/Project Root/Example.uproject
 - Engine root: D:/UE_5.8
+- Evidence root: D:/Work Root/evidence
+- Historical read-only roots: D:/OldGame, D:/Archive
+- Preserved game skill sources: oldgame=D:/Archive, Earlier Game=D:/Older
+- Headless engine launch: yes
+- Interactive engine launch: no
+- Epic MCP operations: yes
+- OpenClaw operations: no
+- Epic MCP port: 8000
+- OpenClaw port: 27184
 - NOW.md: D:/Work Root/game/NOW.md
 - Lessons inbox: D:/Work Root/game/LESSONS.md
 """
@@ -26,9 +37,28 @@ class TestGameConfig(unittest.TestCase):
         self.assertEqual(c.source, Path("binding.md"))
         self.assertEqual(c.name, "Example Game")
         self.assertEqual(c.slug, "mygame")
+        self.assertEqual(c.phase, "RST-02")
         self.assertEqual(c.working_root, Path("D:/Work Root"))
         self.assertEqual(c.project_root, Path("D:/Project Root"))
+        self.assertEqual(
+            c.expected_uproject, Path("D:/Project Root/Example.uproject"))
         self.assertEqual(c.engine_root, Path("D:/UE_5.8"))
+        self.assertEqual(c.evidence_root, Path("D:/Work Root/evidence"))
+        self.assertEqual(
+            c.historical_roots,
+            (Path("D:/OldGame"), Path("D:/Archive")),
+        )
+        self.assertEqual(
+            c.preserved_game_skill_sources,
+            (("oldgame", Path("D:/Archive")),
+             ("earliergame", Path("D:/Older"))),
+        )
+        self.assertTrue(c.headless_launch_allowed)
+        self.assertFalse(c.interactive_launch_allowed)
+        self.assertTrue(c.epic_mcp_allowed)
+        self.assertFalse(c.openclaw_allowed)
+        self.assertEqual(c.epic_mcp_port, 8000)
+        self.assertEqual(c.openclaw_port, 27184)
         self.assertEqual(c.now, Path("D:/Work Root/game/NOW.md"))
         self.assertEqual(c.lessons, Path("D:/Work Root/game/LESSONS.md"))
 
@@ -64,6 +94,28 @@ class TestGameConfig(unittest.TestCase):
         root = Path("D:/ExampleGame")
         c = gc.GameConfig(source=Path("binding.md"), project_root=root)
         self.assertEqual(c.project_dir, root)
+
+    def test_expected_identity_exists_before_the_project_file_does(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            expected = root / "FutureGame.uproject"
+            c = gc.GameConfig(
+                source=root / "binding.md",
+                project_root=root,
+                expected_uproject=expected,
+            )
+            self.assertEqual(c.project_identity, expected)
+            self.assertIsNone(c.uproject)
+
+    def test_non_yes_no_and_invalid_ports_never_become_authority(self):
+        c = gc.parse_game_config(
+            "- Headless engine launch: maybe\n"
+            "- Epic MCP operations: enabled\n"
+            "- Epic MCP port: 70000\n"
+        )
+        self.assertIsNone(c.headless_launch_allowed)
+        self.assertIsNone(c.epic_mcp_allowed)
+        self.assertIsNone(c.epic_mcp_port)
 
 
 if __name__ == "__main__":

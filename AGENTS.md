@@ -1,103 +1,106 @@
-# gamecreater — session router (Antigravity & Agentic Harness)
+# gamecreater - Roblox game-making team
 
-This repo is the operating system for long-horizon game work: the session
-anchor, the memory spine, the skill corpus, and the guard rails. The game
-itself lives in its own repos, named by `GAME.local.md`. This file routes;
-it does not teach. Lessons live in skills, current truth lives in the game's
-`NOW.md`, and duplicating either here is a defect.
+This repository runs a Roblox production team. Game source, saved places and
+evidence live in the separate project named by GAME.local.md. Keep this repo
+for reusable methods, team coordination, skills, checks and handoffs.
 
-## Session start — load in this order, then work
+## Start every session
 
-1. Standing corrections load automatically from the harness memory index.
-2. Read `GAME.local.md` — the active game's roots, engine, and repos. If it
-   is missing, copy `templates/GAME.local.template.md` and ask the user to
-   confirm the paths.
-3. Check skill mirrors with `python scripts/sync_skills.py --check`; run it
-   without `--check` only when drift is reported.
-4. Read the active game's `NOW.md` (path named in `GAME.local.md`) — the
-   current arc, open register, blockers, and the next executable action.
-   Deep reference docs (`STATE.md`, `KUROGANE-GUIDE.md`, `INDEX.md`) are
-   lazy-loaded on-demand when specific sub-systems are touched.
+1. Read GAME.local.md: engine, project roots, integration owner and exact grants.
+2. Run `python scripts/sync_skills.py --check`; sync only when drift is reported.
+3. Read team/NOW.md and the active game's NOW.md. Follow its latest handoff and
+   build receipts; compare timestamps/hashes to source. A newest directory is not
+   proof of an accepted build.
+4. Read docs/roblox-team.md and use build-roblox-game for Roblox implementation,
+   Studio testing and delivery. Run `python scripts/roblox_team.py status`.
+5. Assign exact files and acceptance checks before delegating implementation.
+   For substantial behavior/control changes, apply docs/roblox-governance.md:
+   choose proportional review and bind the result to the exact candidate.
 
-That is the whole orientation. Do not re-derive state from chat memory when
-`NOW.md` exists; if `NOW.md` contradicts the code or the assets, current
-state wins and `NOW.md` gets corrected in the same session.
+Current files and actual results outrank remembered state. If NOW is stale, record
+the discrepancy and have its integration owner reconcile it. Do not overwrite
+another active chat's state file while it integrates a release.
 
-## Work from skills. Default, not an option.
+## Operate as a team
 
-Check `.agents/skills/` or `skills/` for a skill covering the work and follow it.
-Each one was paid for by a real failure; its Provenance section names which.
-Current code wins when a skill drifts: record the conflict in the lessons
-inbox, do not silently work around it.
+The lead owns scope, shared interfaces/config, integration, builds and handoff.
+Delegate server gameplay, client/UI, world/art/audio and QA/release when independent.
+Roles and task contracts live in docs/roblox-team.md and templates/ROBLOX-TASK.template.md.
 
-**Before you launch or write anything**
-`render-a-headless-capture` · `write-a-run-sidecar` ·
-`back-up-before-a-destructive-write` · `derive-a-constant-from-the-asset` ·
-`edit-vendor-data-headlessly` · `inspect-and-patch-blueprint-graph` ·
-`bridge-dcc-asset-roundtrip`
+- Every task has one owner and exact writable files. A role does not grant an
+  entire source subtree. Resolve overlapping assignments before writing.
+- One operator owns a Studio instance's mutations, Play transitions and input.
+  Enumerate current Studios and inspect the chosen instance before live work.
+  Studio IDs and Edit/Client/Server contexts expire; old evidence is not a target.
+- Other workers can read source/review evidence and prepare disjoint changes.
+  Shared config, mappings and interfaces go through the integrator.
+- Use collaboration subagents for current-task work. Create or message sidebar
+  chats only under user authorization. The current integration owner keeps its
+  game files until an explicit handback.
+- On hold, immediately stop edits, tests, launches and input. Preserve state.
+  Do not interrupt or take over the user's current play session.
 
-**Before you believe a result**
-`separate-execution-from-output` · `establish-a-noise-floor` ·
-`prove-an-instrument-can-fail` · `judge-a-silhouette` ·
-`verify-on-the-real-entry` · `audit-animation-montage-pipeline` ·
-`pin-collision-and-trace-matrix`
+The initial local binding selects Strikepoint. Iron Paws is excluded from active
+work, planning and handoff by the user's decision. Exclusion never means deleting
+its files. Historical Unreal projects remain separate and inactive.
 
-**When something works here and fails there**
-`isolate-a-variable` · `watch-the-live-session` · `probe-a-claim` ·
-`prove-a-control` · `triage-engine-crash-dump`
+## Derive methods from the actual game
 
-**At boundaries & User Interaction**
-`pin-a-content-boundary` · `verify-a-cooked-package` ·
-`create-regression-pin` · `checkpoint-a-hold` · `distill-an-arc` ·
-`orchestrate-user-playtest` · `publish-a-repo`
+Inspect the active project's actual scripts, manifests, lessons and receipts.
+Keep changing facts in team/*.local.md / *.local.json, not permanent generic
+rules. `python scripts/roblox_team.py inventory` indexes files and fingerprints
+workflow inputs without executing them. It is not proof every artifact was read.
 
-Game-specific skills mirror in as `game-<name>-*`; they bind tighter than
-the general skill when both apply.
+Use the project's existing reviewed build wrapper. Preserve scope checks and
+input hashes; save a fresh candidate rather than overwrite evidence. A tool call,
+compile, fixture or build cannot establish gameplay, visual quality, multiplayer
+fairness, physical-device behavior or user approval. Use feature-relevant stages
+in docs/roblox-team.md; do not rerun every stage after every small change.
 
-## Authorization boundary
+Before release handoff, cold-open the exact saved candidate and exercise ordinary
+player entry. Report source, saved-build, runtime, multiplayer, visual/device,
+user and published-service results separately. Use templates/ROBLOX-HANDOFF.template.md.
 
-Standing, no further ask (confirm the exact grants in `GAME.local.md`):
-read anything under the named roots; launch the engine headlessly for
-captures, probes, and sweeps; write scripts, renders, logs, and docs inside
-the working root; `git add` and `git commit` there.
+Use `scripts/roblox_review.py` to capture/check explicit candidate inputs and
+evidence for substantial reviews. A matching snapshot proves content identity;
+it does not fill missing acceptance stages or grant authority. Preserve failed
+reviews and reconcile remediation explicitly. Ordinary local work needs only
+focused verification. Durable team rationale lives in team/DECISIONS.md.
 
-Separately authorized by the user, each for the exact effect, executor, and
-target — a work mode, a plan, or "let's resume" supplies none of them:
+## Work from skills
 
-- any DCC tool launch (Blender or otherwise) — the engine grant never covers it
-- writing canonical game content
-- `git push` · `git merge` — separate acts; neither follows from a commit
-- making any repo public, or publishing anything outward
-- any paid or provider tool, including launching unapproved external agents
-- deleting or overwriting an existing asset, render, or evidence file
+Read the applicable skill in `skills/` or its discovery mirror before its work.
+build-roblox-game is the Roblox entry.
+docs/skill-routing.md routes retained general methods and legacy engine skills.
+Unreal-only procedures do not apply to Roblox because they are discoverable.
+Preserve originals; check both generated discovery mirrors.
 
-Guards mechanize the two rules that were violated most expensively: pushes
-are blocked unless the repo is verified private (or granted in
-`public-grant.txt`), and headless engine launches are blocked while an
-editor is open. Hooks live in `.agents/hooks.json` and `.claude/settings.json`.
-Codex wiring lives in `.codex/hooks.json`; Codex must trust its exact current
-definition before it runs. Do not bypass a guard silently — surface it.
+## Authorization and guard limits
 
-## Work modes, one paragraph
+The user's task and exact grants in GAME.local.md govern work. Reversible local
+implementation within an assigned user-requested task can proceed; setup does not
+transfer another project's permissions or release ownership. This conversion
+authorizes harness changes, not competing game edits.
 
-Ordinary reversible work declares nothing. A long campaign is `explore`:
-one arc brief (`memory/ARC-BRIEF.template.md`), recorded attempts, failures
-kept, provisional claims. Freezing one candidate for acceptance is
-`validate`. Touching canonical or live state is `promote`: rollback point
-first, separate exact authority for the write. A mode never grants
-authority.
+Exact authority is required for publication, account/purchase changes, paid or
+provider tools, uploads, DCC launches, push/merge, visibility changes and destroying
+or overwriting existing assets/evidence. Local commit authority is separate.
+Do not infer authority from a role, plan or work mode.
 
-## The improvement loop
+Hooks guard repository publication names, pushes and lesson truncation.
+The Unreal CLI and shared policy helpers reject a non-Unreal binding.
+These checks do not validate arbitrary Roblox Luau or
+enforce the written file/Studio ownership protocol. Do not call a written rule a
+mechanized lock. Codex hook trust/running state is not observable here; do not
+change or bypass hooks merely to make work run.
 
-During work, lessons append to the lessons inbox (`memory/LESSONS.md` for
-harness-general lessons, the game's own inbox for game-specific ones) —
-autonomously, at the moment they are paid for. Skill bodies change only at
-arc end via `distill-an-arc`, on the user's go. Every skill edit updates
-its Changelog with the evidence that forced it.
+## Persistence and handback
 
-## Checkpoint ritual
+Append paid-for general lessons to memory/LESSONS.md; coordinate project lessons
+with the game's owner. Existing skill bodies change at arc end through
+distill-an-arc on the user's go. New skills requested by team setup identify their
+source and limits.
 
-Before claiming a safe hold, ending an arc, or any "commit push":
-`checkpoint-a-hold` — update `NOW.md` and the register, sweep loose lessons
-into the inbox, commit. A hold without a current `NOW.md` is not safe; the
-next session starts blind exactly there.
+Before hold or arc handback, follow checkpoint-a-hold: current team/game state,
+next executable action, tiered register, exact evidence and outstanding ownership.
+Commit only when authorized; report uncommitted work honestly. Push is separate.

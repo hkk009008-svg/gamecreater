@@ -136,6 +136,62 @@ class TestMirrorAndDrift(unittest.TestCase):
         self.assertIn("game-demo-do-a-thing", desired)
         self.assertIn("do-a-thing", desired)
 
+    def test_inactive_game_skills_are_preserved_from_declared_read_only_source(self):
+        active = Path(self.tmp.name) / "active"
+        active_skill = active / ".claude" / "skills" / "active-only"
+        active_skill.mkdir(parents=True)
+        (active_skill / "SKILL.md").write_text("active body", encoding="utf-8")
+
+        historical = Path(self.tmp.name) / "historical"
+        old_skill = historical / ".claude" / "skills" / "old-lesson"
+        old_skill.mkdir(parents=True)
+        (old_skill / "SKILL.md").write_text("historical body", encoding="utf-8")
+
+        ss.GAME_LOCAL.write_text(
+            f"- Working root: {active}\n"
+            "- Short slug: townblade\n"
+            f"- Preserved game skill sources: kurogane={historical}\n",
+            encoding="utf-8",
+        )
+        desired = ss.desired_mirror()
+        self.assertIn("game-townblade-active-only", desired)
+        self.assertIn("game-kurogane-old-lesson", desired)
+
+        ss.write_mirror(desired)
+        for surface in ss.SURFACES:
+            preserved = surface / "game-kurogane-old-lesson" / "SKILL.md"
+            self.assertEqual(
+                preserved.read_text(encoding="utf-8"), "historical body")
+
+    def test_preserved_source_does_not_make_unrelated_orphans_immortal(self):
+        historical = Path(self.tmp.name) / "historical"
+        old_skill = historical / ".claude" / "skills" / "old-lesson"
+        old_skill.mkdir(parents=True)
+        (old_skill / "SKILL.md").write_text("historical body", encoding="utf-8")
+        ss.GAME_LOCAL.write_text(
+            f"- Preserved game skill sources: kurogane={historical}\n",
+            encoding="utf-8",
+        )
+        desired = ss.desired_mirror()
+        ss.write_mirror(desired)
+        orphan = ss.SURFACE / "game-unknown-no-source"
+        orphan.mkdir()
+        (orphan / "SKILL.md").write_text("orphan", encoding="utf-8")
+        self.assertTrue(any(
+            "orphan" in problem
+            for problem in ss.drift(desired, ss.current_surface())
+        ))
+
+    def test_missing_preserved_source_fails_before_any_skill_can_be_deleted(self):
+        missing = Path(self.tmp.name) / "offline-history"
+        ss.GAME_LOCAL.write_text(
+            f"- Preserved game skill sources: kurogane={missing}\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(SystemExit) as caught:
+            ss.desired_mirror()
+        self.assertIn("missing or empty", str(caught.exception))
+
 
 class TestSessionRouter(unittest.TestCase):
     def test_session_start_builds_the_generated_surface(self):

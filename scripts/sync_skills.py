@@ -2,10 +2,8 @@
 
 Canonical bodies live in skills/<tier>/<name>/SKILL.md. The harness
 discovers skills in .claude/skills/<name>/SKILL.md, so this script mirrors
-them flat — and also mirrors the ACTIVE GAME's own skills (working root
-and slug read from GAME.local.md) as game-<slug>-<name>, fixing the defect
-this repo exists to fix: game skills invisible to the session because they
-live in another repo.
+them flat. It mirrors the active game's skills and any explicitly preserved
+read-only game skill sources from GAME.local.md as game-<slug>-<name>.
 
 Usage:
     python scripts/sync_skills.py           # write the mirror
@@ -72,9 +70,21 @@ def desired_mirror() -> dict[str, Path]:
     harness = dict(out)
     game_local = resolve_gitignored(GAME_LOCAL, cwd=ROOT)
     if game_local.is_file():
-        root, slug = parse_game_local(game_local.read_text(encoding="utf-8"))
-        if root and slug:
-            for body in iter_game_skill_bodies(root):
+        config = parse_game_config(game_local.read_text(encoding="utf-8"))
+        sources: list[tuple[str, Path, bool]] = []
+        if config.working_root and config.slug:
+            sources.append((config.slug, config.working_root, False))
+        sources.extend(
+            (slug, root, True)
+            for slug, root in config.preserved_game_skill_sources
+        )
+        for slug, root, preserved in sources:
+            bodies = iter_game_skill_bodies(root)
+            if preserved and not bodies:
+                raise SystemExit(
+                    f"preserved game skill source is missing or empty: "
+                    f"{slug}={root}")
+            for body in bodies:
                 name = body.parent.name
                 # Identical copy of a harness skill is not "the game's own".
                 src = harness.get(name)
@@ -82,6 +92,8 @@ def desired_mirror() -> dict[str, Path]:
                     continue
                 key = f"game-{slug}-{name}"
                 if key in out:
+                    if out[key].read_bytes() == body.read_bytes():
+                        continue
                     raise SystemExit(f"duplicate game skill name: {key}")
                 out[key] = body
     return out

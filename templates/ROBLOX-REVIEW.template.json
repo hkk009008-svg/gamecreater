@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "snapshotSha256": "replace-with-sha256-of-saved-candidate-json-bytes",
+  "reviewer": "replace-with-actual-non-author-reviewer",
+  "verdict": "FAIL",
+  "findings": "Replace with actual scope reviewed, checks or ordinary entry performed, observed results, findings and limits. Select GO, NITS or FAIL from the real review.",
+  "evidence": [
+    {"root": "game", "path": "evidence/REPLACE-RUN/behavior-results.json"}
+  ],
+  "abuseAnalysis": ""
+}

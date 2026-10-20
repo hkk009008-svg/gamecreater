@@ -42,7 +42,8 @@ class TestCommandBuilder(unittest.TestCase):
         parsed = er.build_parser().parse_args(["epic-mcp-check"])
         self.assertEqual(parsed.cmd, "epic-mcp-check")
 
-        with patch.object(er, "cmd_epic_mcp_check", return_value=7) as check:
+        with (patch.object(er, "load_game_config", return_value=GameConfig(source=Path("fixture.md"))),
+              patch.object(er, "cmd_epic_mcp_check", return_value=7) as check):
             self.assertEqual(er.main(["engine_run", "epic-mcp-check"]), 7)
         check.assert_called_once_with()
 

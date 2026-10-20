@@ -9,3 +9,10 @@ public-grant.txt
 __pycache__/
 *.pyc
 .pytest_cache/
+# Local snapshots, machine bindings and build outputs never join team source.
+.local-backups/
+*.local.json
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx

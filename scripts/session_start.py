@@ -125,11 +125,16 @@ def game_binding() -> dict:
         for key, value in {
             "name": config.name,
             "slug": config.slug,
+            "phase": config.phase,
             "working": config.working_root,
             "project": config.project_root,
+            "project_identity": config.project_identity,
             "engine": config.engine_root,
             "now": config.now,
             "inbox": config.lessons,
+            "engine_kind": config.engine_kind,
+            "team_now": config.team_now,
+            "integration_owner": config.integration_owner,
         }.items()
         if value is not None
     }
@@ -150,7 +155,7 @@ def now_block(g: dict) -> None:
         return
     txt = read(path)
     mtime = date.fromtimestamp(path.stat().st_mtime)
-    stated = re.search(r"\*\*As of:\*\*\s*([0-9]{4}-[0-9]{2}-[0-9]{2})", txt)
+    stated = re.search(r"^\s*(?:\*\*)?As of:(?:\*\*)?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})", txt, re.M)
     a_state = days_since(stated.group(1)) if stated else None
     a_file = (TODAY - mtime).days
     out(f"NOW.md  written {age_str(a_file)}"
@@ -203,6 +208,24 @@ def now_block(g: dict) -> None:
                      f"'{tier}' - one of them is unreachable")
     else:
         warn("no register items parsed out of NOW.md")
+
+
+def team_block(g: dict) -> None:
+    """Expose the harness action separately from a game's active release."""
+    if not g.get("team_now"):
+        return
+    path = Path(g["team_now"])
+    if not path.is_file():
+        warn(f"Team NOW.md not found at {path}")
+        return
+    out(f"Team coordination: {path}")
+    text = read(path)
+    section = re.search(r"^## Next executable action\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if not section:
+        warn("Team NOW.md has no Next executable action")
+        return
+    for line in [line.strip() for line in section.group(1).splitlines() if line.strip()][:4]:
+        out(f"  {line[:180]}")
 
 
 # --------------------------------------------------------------------------
@@ -260,13 +283,16 @@ def inbox_block(g: dict) -> None:
 # --------------------------------------------------------------------------
 def repo_block(g: dict) -> None:
     repos = [("gamecreater", ROOT)]
+    seen = {ROOT.resolve()}
     for k in ("working", "project"):
         if g.get(k):
             configured = Path(g[k])
             path = (configured.parent
                     if configured.suffix.lower() == ".uproject"
                     else configured)
-            repos.append((path.name, path))
+            if path.resolve() not in seen:
+                repos.append((path.name, path))
+                seen.add(path.resolve())
     for label, path in repos:
         is_repo, inside = git_result(
             ["rev-parse", "--is-inside-work-tree"], path)
@@ -389,6 +415,25 @@ def guard_block() -> None:
 # 5b. engine state -- an open editor blocks every headless launch
 # --------------------------------------------------------------------------
 def engine_block() -> None:
+    config = load_game_config(ROOT / "GAME.local.md")
+    if config.engine_kind == "roblox":
+        manifest = config.project_identity
+        bound = manifest is not None and manifest.is_file()
+        out(f"Engine: Roblox Studio; source project {'bound' if bound else 'UNBOUND'}; "
+            f"manifest {manifest or 'UNSET'}")
+        out("Studio: live instance and Play state NOT QUERIED; enumerate current "
+            "Roblox Studio instances before live operations")
+        out(f"Integration owner: {config.integration_owner or 'UNASSIGNED'}")
+        if not bound:
+            warn("Roblox project manifest is missing; do not guess a saved place")
+        if config.team_now:
+            out(f"Team state: {config.team_now}")
+            if not config.team_now.is_file():
+                warn("team NOW.md is missing")
+        return
+    if config.engine_kind != "unreal":
+        warn(f"unsupported Engine binding: {config.engine_kind}")
+        return
     try:
         sys.path.insert(0, str(ROOT / "scripts"))
         import engine_run                                         # noqa: PLC0415
@@ -398,12 +443,22 @@ def engine_block() -> None:
         return
     ed = {True: "editor running", False: "no editor",
           None: "COULD NOT ENUMERATE"}[m.editor_running]
-    out(f"Engine: {m.name} mode ({ed})")
+    bound = config.uproject is not None
+    launch = config.headless_launch_allowed is True
+    out(f"Engine: {m.name} process state ({ed}); phase "
+        f"{config.phase or 'UNSET'}; project "
+        f"{'bound' if bound else 'unbound'}; headless authority "
+        f"{'yes' if launch else 'no'}")
     if m.editor_running:
-        warn("an editor is open, so EVERY headless capture, probe and sweep is "
-             "blocked; use OpenClaw for live-editor work or close the editor")
+        live = (config.openclaw_allowed is True
+                or config.epic_mcp_allowed is True)
+        warn("an editor is open, so every headless launch is blocked; "
+             + ("a live Unreal channel still must prove active-project identity"
+                if live else "the current phase grants no live Unreal channel"))
     elif m.editor_running is None:
         warn("editor process state is unknown, so headless launches fail closed")
+    elif not bound or not launch:
+        warn("headless launches are blocked by the active project/phase binding")
 
 
 # --------------------------------------------------------------------------
@@ -420,14 +475,14 @@ def skills_block() -> None:
         problems.extend(
             f"{name}: {p}" for p in sync_skills.drift(
                 desired, sync_skills.current_surface(surface)))
-    out(f"Skills: {len(desired)} active, mirrored " +
+    out(f"Skills: {len(desired)} discoverable, mirrored " +
         ", ".join(f"{k}={v}" for k, v in counts.items()))
     if problems:
         warn("skill discovery surface drift - run python scripts/sync_skills.py; "
              + "; ".join(problems[:4]))
 
     names = {p.parent.name for p in (ROOT / "skills").glob("*/*/SKILL.md")}
-    router = read(ROOT / "AGENTS.md")
+    router = read(ROOT / "AGENTS.md") + "\n" + read(ROOT / "docs" / "skill-routing.md")
     unrouted = sorted(n for n in names if n not in router)
     if unrouted:
         warn(f"AGENTS.md routes {len(names) - len(unrouted)} of {len(names)} "
@@ -448,9 +503,11 @@ def main() -> int:
     out("=== SESSION ORIENTATION (measured, not recalled) ===")
     if g:
         out(f"Game: {g.get('name', '?')} [{g.get('slug', '?')}]  "
+            f"phase={g.get('phase', '?')}  "
             f"working={g.get('working', '?')}  project={g.get('project', '?')}")
     out()
     run_block("NOW", now_block, g)
+    run_block("team coordination", team_block, g)
     out()
     run_block("lessons inbox", inbox_block, g)
     out()
@@ -466,9 +523,9 @@ def main() -> int:
         for w in WARN:
             out(f"  ! {w}")
     out()
-    out("Skills are the default, not an option. Authorization boundary in "
-        "AGENTS.md is per-act: push, merge, DCC launch, canonical Content "
-        "writes, publishing, deletions.")
+    out("Skills are the default. Authorization boundary: GAME.local.md plus "
+        "the user's current task; publishing, account/purchase changes, paid "
+        "tools, push/merge and destructive asset operations need exact authority.")
     print("\n".join(LINES))
     return 0
 

@@ -1509,6 +1509,12 @@ def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
     a = build_parser().parse_args(argv[1:])
+    config = load_game_config()
+    if config.engine_kind != "unreal":
+        print(f"Unreal entry refused: active Engine is {config.engine_kind}. "
+              "Use python scripts/roblox_team.py status for the Roblox team.",
+              file=sys.stderr)
+        return 2
     a._supervisor_command = [sys.executable, *map(str, argv)]
     if a.cmd == "mode":
         return cmd_mode()
