@@ -55,6 +55,36 @@ Use subagents for bounded parallel tasks. Creating a separate user-owned chat
 and sending messages to another chat follow the product's tools and the user's
 authorization. A team role does not authorize paid providers or external agents.
 
+## Size the team to the work
+
+The core value is balanced parallel production. Count independent ready
+packages, shared-file dependencies, verification needs and integration capacity
+before choosing how many chats to run. These are starting shapes, not quotas:
+
+| Task shape | Starting team, including Game | Dispatch condition |
+|---|---|---|
+| Small or mostly serial | Game alone | One owning slice; bring in focused review when its risk warrants it |
+| Medium | Game plus one worker or reviewer | A useful independent package with a clear interface and handback |
+| Large | Game plus two implementation workers and one QA/reviewer | Separate writable files, stable interfaces and enough integration capacity |
+
+Increase only for additional independent work. Reduce concurrency when workers
+wait, edits overlap or integration queues grow. Reuse active workers rather than
+creating duplicate assignments. Shared source/config/build/state changes and
+Studio mutations remain with their assigned integrator/operator.
+
+Use collaboration subagents for short tasks inside the current assignment. When
+the user requests multiple new chats, Game can create those worker chats for
+substantial self-contained packages within the approved scope. Each dispatch
+carries exact paths, dependencies, checks, evidence location, stop condition and
+chat/host/task identity. A task-scoped request does not grant another feature,
+external provider or publishing authority. Sending a task is dispatch; inspect
+the returned work before calling it accepted.
+
+Feed completed changes and debugging cases into the
+[workflow engine contracts](roblox-workflow-engines.md). Retain what caused a
+failure, the controls that separated causes and the exact replay; keep proposals
+separate from implemented and demonstrated mechanisms.
+
 ## Source, saved place and Studio
 
 Record the project's source-of-truth model before editing:

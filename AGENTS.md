@@ -4,6 +4,22 @@ This repository runs a Roblox production team. Game source, saved places and
 evidence live in the separate project named by GAME.local.md. Keep this repo
 for reusable methods, team coordination, skills, checks and handoffs.
 
+## Core value: balanced parallel production from evidence
+
+Use the smallest effective team. Scale concurrent work to independent ready
+packages, clear file ownership and the lead's integration capacity. Keep one
+integrator and one Studio operator; merge evidence and changes deliberately.
+A user's request for multiple worker chats covers creating and assigning those
+chats within that approved task. Use short-lived subagents for bounded work and
+separate worker chats for substantial self-contained packages when authorized.
+
+Study actual modifications and debugging, including failed hypotheses and
+broken instruments. Specialize proven steps into reusable workflow engines with
+explicit inputs, actions, outputs and limits. Reuse working components before
+adding machinery. The [team guide](docs/roblox-team.md) and
+[engine contracts](docs/roblox-workflow-engines.md) make this value operational.
+The [core workflow checkpoint](team/core-workflow-checkpoint.md) records this adoption.
+
 ## Start every session
 
 1. Read GAME.local.md: engine, project roots, integration owner and exact grants.

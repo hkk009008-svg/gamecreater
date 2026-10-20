@@ -24,6 +24,17 @@
 - Existing edits/other owners checked: <current observations>
 - Authority needed beyond existing grants: <exact effect/target or none>
 
+When approvals differ across steps, record this short decision scope instead of
+letting a broad feature approval imply permission for its activation:
+
+- Decision source: <direct user instruction or linked reaffirmation; quote only
+  the relevant wording, record the date/chat if known, leave missing identity unknown>
+- Allowed in this slice: <exact effects, executor and target already authorized>
+- Deferred or forbidden now: <remaining effect and the condition or explicit
+  decision needed before it can run; an approval for later is not execution now>
+
+The record describes existing authority; it does not grant or authenticate it.
+
 ## Work and coordination
 
 <Brief implementation approach; identify dependency order and work that can run
