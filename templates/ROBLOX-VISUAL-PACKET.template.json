@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "title": "Replace with one bounded visual experiment",
+  "question": "What should improve in ordinary gameplay?",
+  "direction": {
+    "promise": "One sentence describing the player-visible result.",
+    "rules": ["Shape rule", "Material rule", "Lighting or motion rule"],
+    "avoid": ["A concrete unwanted visual outcome"],
+    "preserve": ["Accepted palette, silhouette, aim and timing"]
+  },
+  "captures": [
+    {
+      "id": "baseline",
+      "label": "Baseline",
+      "media": {
+        "path": "REPLACE-WITH-ORIGINAL-BASELINE.png",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "build": {"id": null, "sha256": null},
+      "context": {
+        "map": null,
+        "subject": null,
+        "phase": null,
+        "lighting": null,
+        "quality": null,
+        "device": null,
+        "randomState": null,
+        "camera": null,
+        "fov": null,
+        "viewport": null,
+        "input": "unknown",
+        "captureMode": "unknown",
+        "sequenceTime": null
+      },
+      "eligibility": {
+        "subjectVisible": null,
+        "unscaled": null,
+        "controls": [{"layer": "world", "visible": null, "evidence": null}],
+        "repeat": null
+      },
+      "notes": ["Replace paths and hashes, or use the init command to generate them."]
+    },
+    {
+      "id": "candidate",
+      "label": "Candidate",
+      "media": {
+        "path": "REPLACE-WITH-ORIGINAL-CANDIDATE.png",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "build": {"id": null, "sha256": null},
+      "context": {
+        "map": null,
+        "subject": null,
+        "phase": null,
+        "lighting": null,
+        "quality": null,
+        "device": null,
+        "randomState": null,
+        "camera": null,
+        "fov": null,
+        "viewport": null,
+        "input": "unknown",
+        "captureMode": "unknown",
+        "sequenceTime": null
+      },
+      "eligibility": {
+        "subjectVisible": null,
+        "unscaled": null,
+        "controls": [{"layer": "world", "visible": null, "evidence": null}],
+        "repeat": null
+      },
+      "notes": []
+    }
+  ],
+  "comparisons": [
+    {
+      "id": "visual-change",
+      "title": "Baseline and candidate",
+      "question": "Does the deliberate change improve the intended view?",
+      "baseline": "baseline",
+      "candidate": "candidate",
+      "purpose": "aesthetic",
+      "changedFactors": [],
+      "requiredLayers": ["world"]
+    }
+  ],
+  "coverage": [
+    {"label": "Ordinary gameplay view", "captureIds": ["baseline", "candidate"], "note": "State the actual view and its limits."},
+    {"label": "Native combat motion", "captureIds": [], "note": "Capture when relevant to the experiment."}
+  ],
+  "decisions": {
+    "status": "pending",
+    "userVerdict": null,
+    "nextExperiment": "Replace with one deliberate change and its keep/revert condition."
+  }
+}

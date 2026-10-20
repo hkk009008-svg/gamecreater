@@ -102,3 +102,14 @@ working directory, including unrelated uncommitted tests.
 - [Inventory](inventory-20261020T133435949379Z.local.json): 14,508 files and 174
   selected workflow fingerprints in the observed game tree; no read/change errors.
   This is a non-atomic snapshot from an active integration, not current acceptance.
+
+## Visual workbench checkpoint — 2026-10-20
+
+The offline visual workbench is implemented and independently reviewed.
+Its [checkpoint](visual-workbench-checkpoint.md) records the delivered scope,
+verification and open evidence limits. Start a new authorized visual study with
+`python scripts/roblox_visual_packet.py init --help`, then follow the
+[workbench guide](../docs/roblox-visual-workbench.md). Game's release state and
+next task remain governed by its current local binding, NOW and owner handoff.
+The user authorized committing and pushing this bounded harness work; generated
+packets, original game captures and other pending harness work remain separate.

@@ -732,3 +732,22 @@ The next sweep starts below this line.
   the candidate. A content match still does not prove the report is truthful,
   a reviewer identity is authenticated, or gameplay ran. Evidence:
   tests/test_roblox_review.py and team/governance-adoption-tests-20261020.local.json.
+- 2026-10-20 - VISUAL QUALITY NEEDS AN ELIGIBLE VIEW BEFORE A METRIC. Observing
+  the working game's visual process found a screenshot path that rendered a
+  ScreenGui control while omitting both original and independent BillboardGui
+  controls; native captures refuted the apparent missing-pip defect. A separate
+  long-range setup had its intended figures hidden behind a real Practice bot.
+  Capture-path controls, visible subjects and encoding/resampling eligibility
+  must precede measurement. Keep ordinary-play composition, material scale,
+  motion and device comfort in human review; do not convert pixel thresholds
+  into a beauty score. Evidence: team/visual-capability-audit-20261020.local.md;
+  reusable workflow: docs/roblox-visual-quality.md.
+- 2026-10-20 - QUALIFY CONTROL EVIDENCE WITH THE SAME FILE CHECKS AS THE SUBJECT.
+  The first reusable visual packet accepted a control whose decoded size
+  contradicted its declared viewport; the subject had passed, but its supporting
+  capture had escaped that check. Independent probes also caught still-image
+  ISO-BMFF containers classified as video and image bytes labelled native-video.
+  Validate supporting captures and media-mode coherence before declaring a pair
+  comparable. Preserve unknown settings and distinguish signature inspection
+  from playback verification. Evidence: tests/test_roblox_visual_packet.py and
+  team/visual-example-evidence-review-final-20261020T144311548193Z.local.json.

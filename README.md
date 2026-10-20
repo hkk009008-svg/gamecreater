@@ -52,6 +52,27 @@ An inventory helps navigate and compare evidence; it does not establish that
 every artifact was read or every feature works. Reusable methods live in skills/
 and docs/; volatile project data stays local.
 
+For visual quality, the [visual production workflow](docs/roblox-visual-quality.md)
+turns art direction into a bounded gameplay slice, controlled image/motion
+comparisons and measured device budgets. Use its
+[short brief](templates/ROBLOX-VISUAL-BRIEF.template.md) with the existing task
+contract; automated checks support the visual judgement without replacing it.
+
+The [visual workbench](docs/roblox-visual-workbench.md) builds an offline review
+page from original images or video. It carries the art brief, comparison controls,
+capture settings, evidence gaps, coverage and the recorded decision together:
+
+```powershell
+python scripts/roblox_visual_packet.py init --media <before.png> --media <after.png> --out team/visual-study.local.json
+python scripts/roblox_visual_packet.py check --manifest team/visual-study.local.json
+python scripts/roblox_visual_packet.py build --manifest team/visual-study.local.json --out team/visual-packets/visual-study-001
+```
+
+Edit the generated manifest with actual capture settings before checking it.
+Unknown settings stay unknown. A packet with gaps remains useful for critique;
+only eligible comparisons enable the matched-image overlay. Generated packets
+and local manifests are ignored by Git.
+
 ## Skills and checks
 
 skills/roblox/build-roblox-game/SKILL.md is the Roblox entry.
