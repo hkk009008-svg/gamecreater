@@ -6,6 +6,11 @@ for reusable methods, team coordination, skills, checks and handoffs.
 
 ## Core value: balanced parallel production from evidence
 
+No over-engineering. Use the smallest working solution and reuse existing
+components. Add an abstraction, engine, dependency or process only for a
+demonstrated need; keep changes, documentation and checks proportional to the
+task. This does not remove required safety checks or acceptance evidence.
+
 Use the smallest effective team. Scale concurrent work to independent ready
 packages, clear file ownership and the lead's integration capacity. Keep one
 integrator and one Studio operator; merge evidence and changes deliberately.

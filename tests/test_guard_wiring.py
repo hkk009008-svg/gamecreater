@@ -2,6 +2,7 @@
 
 Only the host-applicable configured commands run. On Windows that means Claude
 and Codex commandWindows; the portable Codex command is checked structurally.
+The sibling test_guard_posix module executes the saved portable command in Bash.
 Temporary Git repositories have no remotes or hook activation. Push-looking
 strings reach only the dispatcher and a mocked preflight, never a shell.
 """

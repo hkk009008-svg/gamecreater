@@ -775,3 +775,25 @@ The next sweep starts below this line.
   disposable/in-memory reversions; do not test by pushing or bypassing trust.
   Evidence: team/hardening-source-replay-r2-20261021.local.json and
   docs/roblox-hardening.md. No live enterprise query or hook firing was claimed.
+
+
+- 2026-10-21 - AUDIT THE SELECTED GIT BYTES AND RETAIN THE DENOMINATOR.
+  A harmless working-copy replacement does not clear a staged blob, and a
+  deleted file can remain in reachable history. Preserve full historical paths,
+  normalize text BOMs consistently for anchored rules, and keep skipped binary,
+  truncated text and external payloads as coverage gaps. A limit refusal is not
+  an empty scan. Keep original findings when a reviewer classifies a fixture or
+  prior public baseline; labels do not grant release authority or change PASS.
+  Read-only inspection must prevent lazy promisor fetches, not just assume a
+  protocol default blocks them. Evidence: team/phase2-review-historical-path-repro-20261021.local.json,
+  team/phase2-review-utf8bom-repro-20261021.local.json and
+  team/phase2-review-promisor-pair-20261021.local.json; limits and current
+  contracts: docs/roblox-publication-audit.md. No remote publication clearance.
+
+- 2026-10-21 - CHECK SECONDARY EFFECTS AND SWITCH VALUES ON REAL CONSUMERS.
+  A named parent Git push can also push an unchecked submodule remote through
+  explicit or inherited recursion. PowerShell -Append:$false overwrites despite
+  containing the switch name. Test actual disposable refs/files, including
+  literal invocation forms; keep the guard narrow instead of adding a shell
+  interpreter. Evidence: team/hardening-completion-surface-20261021.local.json
+  and team/hardening-completion-independent-findings-r1-20261021.local.json.

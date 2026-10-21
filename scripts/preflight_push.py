@@ -30,6 +30,51 @@ from gitignored_config import resolve_gitignored  # noqa: E402
 
 GRANT_FILE = Path(__file__).resolve().parent.parent / "public-grant.txt"
 KNOWN_VISIBILITIES = frozenset({"PUBLIC", "PRIVATE", "INTERNAL"})
+RECURSION_CONFIG_PATTERN = r"^(push[.]recursesubmodules|submodule[.]recurse)$"
+
+
+def recursion_config_refusal(repo_dir: str) -> str | None:
+    """Refuse inherited settings that can push an unchecked submodule remote.
+
+    One ordinary parent push can spawn child pushes without passing through
+    PreToolUse again. Read just these two keys from Git's effective config
+    scopes (including includes and environment); never dump unrelated config.
+    Both keys matter: submodule.recurse=true can enable recursion even when
+    push.recurseSubmodules=false. Config values remain private in refusals.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "config", "--null", "--get-regexp", RECURSION_CONFIG_PATTERN],
+            cwd=repo_dir, capture_output=True, text=True, timeout=10)
+    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+        return "could not inspect inherited recursive-push configuration"
+    if proc.returncode == 1 and not proc.stdout and not proc.stderr:
+        return None  # Git's documented no-matching-key status.
+    if (proc.returncode != 0 or proc.stderr
+            or not proc.stdout or not proc.stdout.endswith("\0")):
+        return "could not inspect inherited recursive-push configuration"
+    settings: dict[str, str] = {}
+    for record in proc.stdout[:-1].split("\0"):
+        key, separator, value = record.partition("\n")
+        if key not in {"push.recursesubmodules", "submodule.recurse"}:
+            return "recursive-push configuration returned an unsupported shape"
+        # A key with no value is Git's true boolean form. Last value wins.
+        settings[key] = value if separator else "true"
+    for key, raw in settings.items():
+        value = raw.lower()
+        safe = {"", "false", "no", "off", "0"}
+        if key == "push.recursesubmodules":
+            safe.add("check")  # Checks availability without pushing children.
+        if value in safe:
+            continue
+        enabled = {"true", "yes", "on", "1"}
+        if key == "push.recursesubmodules":
+            enabled.update({"on-demand", "only"})
+        if value in enabled:
+            return (f"inherited {key} can push unchecked submodule destinations; "
+                    "recursive pushes are outside the accepted named-remote grammar")
+        return f"inherited {key} has an unsupported recursive-push value"
+    return None
 
 
 def canonical_repo_name(value: object) -> bool:
@@ -144,6 +189,10 @@ def main(argv: list[str]) -> int:
         sys.stdout.reconfigure(errors="backslashreplace")
     repo_dir = argv[1] if len(argv) > 1 else "."
     remote = argv[2] if len(argv) > 2 else "origin"
+    recursion_refusal = recursion_config_refusal(repo_dir)
+    if recursion_refusal:
+        print(f"PUSH BLOCKED: {recursion_refusal}.")
+        return 1
     target_name = repo_name_from_git(repo_dir, remote)
     if not target_name:
         print(f"PUSH BLOCKED: could not resolve named push remote {remote!r} "

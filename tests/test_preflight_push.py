@@ -6,12 +6,66 @@ import tempfile
 import unittest
 import os
 import unittest.mock
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import preflight_push as pp
+
+
+class TestRecursionConfig(unittest.TestCase):
+    def refusal(self, stdout="", *, returncode=0, stderr=""):
+        with unittest.mock.patch.object(
+                pp.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    [], returncode, stdout, stderr)) as run:
+            result = pp.recursion_config_refusal("fixture checkout")
+        self.assertEqual(run.call_args.args[0], [
+            "git", "config", "--null", "--get-regexp", pp.RECURSION_CONFIG_PATTERN])
+        self.assertEqual(run.call_args.kwargs["cwd"], "fixture checkout")
+        self.assertEqual(run.call_args.kwargs["timeout"], 10)
+        return result
+
+    def test_absence_and_recognized_non_pushing_modes(self):
+        self.assertIsNone(self.refusal(returncode=1))
+        for key in ("push.recursesubmodules", "submodule.recurse"):
+            for value in ("", "false", "no", "off", "0", "FALSE"):
+                with self.subTest(key=key, value=value):
+                    self.assertIsNone(self.refusal(f"{key}\n{value}\0"))
+        self.assertIsNone(self.refusal("push.recursesubmodules\ncheck\0"))
+
+    def test_enabling_modes_and_boolean_without_value_refuse(self):
+        for key in ("push.recursesubmodules", "submodule.recurse"):
+            for value in ("true", "yes", "on", "1"):
+                with self.subTest(key=key, value=value):
+                    self.assertIn("unchecked", self.refusal(f"{key}\n{value}\0"))
+            self.assertIn("unchecked", self.refusal(f"{key}\0"))
+        for value in ("on-demand", "only"):
+            self.assertIn("unchecked", self.refusal(f"push.recursesubmodules\n{value}\0"))
+
+    def test_each_key_uses_last_value_but_false_push_does_not_hide_submodule(self):
+        self.assertIsNone(self.refusal(
+            "push.recursesubmodules\non-demand\0push.recursesubmodules\nfalse\0"))
+        self.assertIn("unchecked", self.refusal(
+            "push.recursesubmodules\nfalse\0submodule.recurse\ntrue\0"))
+
+    def test_unknown_failed_and_malformed_lookup_refuse_without_value_leak(self):
+        for output, code, error in (
+                ("", 0, ""), ("", 1, "unexpected diagnostic"),
+                ("push.recursesubmodules\nfalse\0", 0, "unexpected diagnostic"),
+                ("", 2, ""), ("push.recursesubmodules\nfalse", 0, ""),
+                ("unexpected.key\nfalse\0", 0, ""),
+                ("push.recursesubmodules\nprivate-fixture-value\0", 0, ""),
+                ("submodule.recurse\ncheck\0", 0, "")):
+            with self.subTest(output=output, code=code):
+                result = self.refusal(output, returncode=code, stderr=error)
+                self.assertIsInstance(result, str)
+                self.assertNotIn("private-fixture-value", result)
+        for error in (OSError("missing git"), subprocess.TimeoutExpired("git", 10),
+                      UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad config")):
+            with self.subTest(error=error):
+                with unittest.mock.patch.object(pp.subprocess, "run", side_effect=error):
+                    self.assertIn("could not inspect", pp.recursion_config_refusal("."))
 
 
 class TestParseGhView(unittest.TestCase):
@@ -303,6 +357,9 @@ class TestMain(unittest.TestCase):
 
             def controlled_run(command, **kwargs):
                 seen.append((command, kwargs))
+                if command == ["git", "config", "--null", "--get-regexp",
+                               pp.RECURSION_CONFIG_PATTERN]:
+                    return subprocess.CompletedProcess(command, 1, "", "")
                 if command == ["git", "remote", "get-url", "--push",
                                "--all", "release-remote"]:
                     return subprocess.CompletedProcess(
@@ -337,6 +394,7 @@ class TestMain(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("per-act user authorization", output)
         self.assertEqual([command for command, _ in seen], [
+            ["git", "config", "--null", "--get-regexp", pp.RECURSION_CONFIG_PATTERN],
             ["git", "remote", "get-url", "--push", "--all", "release-remote"],
             ["gh", "repo", "view", "https://github.com/me/repo", "--json", "visibility,nameWithOwner"],
         ])
@@ -350,7 +408,18 @@ class TestMain(unittest.TestCase):
             result, output, seen, _, _ = self.run_main(
                 '{"visibility":"PRIVATE","nameWithOwner":"me/repo"}')
         self.assertEqual(result, 0, output)
-        self.assertEqual(seen[1][0][3], "https://github.com/me/repo")
+        self.assertEqual(seen[2][0][3], "https://github.com/me/repo")
+
+    def test_recursive_config_refuses_before_remote_or_network_lookups(self):
+        for output, code in (("push.recursesubmodules\non-demand\0", 0),
+                             ("submodule.recurse\ntrue\0", 0), ("", 2)):
+            with self.subTest(output=output, code=code):
+                with unittest.mock.patch.object(
+                        pp.subprocess, "run", return_value=subprocess.CompletedProcess(
+                            [], code, output, "")) as run, redirect_stdout(io.StringIO()):
+                    self.assertEqual(pp.main(["preflight_push", "fixture", "origin"]), 1)
+                self.assertEqual(run.call_count, 1)
+                self.assertEqual(run.call_args.args[0][1], "config")
 
     def test_known_public_explicit_grant_allows_and_names_resolved_path(self):
         result, output, _, _, grant_path = self.run_main(
@@ -441,6 +510,105 @@ class TestMain(unittest.TestCase):
         self.assertEqual(output,
                          "PUSH BLOCKED: could not read visibility grant "
                          f"configuration at {pp.GRANT_FILE}.\n")
+
+
+class TestRecursivePushConsumer(unittest.TestCase):
+    def test_actual_local_destinations_and_guarded_entry(self):
+        """No network: Git pushes only between tempfile-owned repositories.
+
+        The visibility seam says PRIVATE for the parent; real Git config and
+        real hook.main decide whether its actual local push may execute.
+        Direct bypass controls prove each blocked mode can advance a child.
+        """
+        import hook_pretooluse as hook
+
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith("GIT_")}
+        environment.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                            "GIT_TERMINAL_PROMPT": "0"})
+        with tempfile.TemporaryDirectory(prefix="guard-recursion-") as td, \
+                unittest.mock.patch.dict(os.environ, environment, clear=True):
+            root = Path(td)
+            source, parent = root / "sub-source", root / "parent"
+            secondary, accepted = root / "secondary.git", root / "accepted.git"
+            real_run = subprocess.run
+
+            def git(arguments, cwd):
+                result = real_run(["git", *arguments], cwd=cwd, capture_output=True,
+                                  text=True, timeout=20)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result.stdout
+
+            def commit(cwd, text):
+                git(["add", "-A"], cwd)
+                git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                     "commit", "-m", text], cwd)
+
+            for bare in (secondary, accepted):
+                git(["init", "--bare", str(bare)], root)
+            git(["init", "-b", "master", str(source)], root)
+            (source / "data").write_text("base", encoding="utf-8")
+            commit(source, "base")
+            git(["remote", "add", "origin", str(secondary)], source)
+            git(["push", "origin", "master"], source)
+            git(["init", "-b", "master", str(parent)], root)
+            git(["-c", "protocol.file.allow=always", "submodule", "add", str(secondary), "module"], parent)
+            commit(parent, "base")
+            git(["remote", "add", "origin", str(accepted)], parent)
+            git(["push", "origin", "master"], parent)
+
+            def controlled_run(command, *args, **kwargs):
+                if command[0] == "gh":
+                    return subprocess.CompletedProcess(command, 0,
+                        '{"visibility":"PRIVATE","nameWithOwner":"fixture/parent"}', "")
+                return real_run(command, *args, **kwargs)
+
+            def guard(options):
+                command = "git " + subprocess.list2cmdline(["push", *options, "origin", "master"])
+                payload = json.dumps({"tool_name": "exec_command", "tool_input": {
+                    "cmd": command, "workdir": str(parent)}})
+                with unittest.mock.patch.object(sys, "stdin", io.StringIO(payload)), \
+                        unittest.mock.patch.object(pp, "repo_name_from_git", return_value="fixture/parent"), \
+                        unittest.mock.patch.object(pp, "resolve_gitignored", return_value=root / "absent-grant"), \
+                        unittest.mock.patch.object(pp.subprocess, "run", side_effect=controlled_run), \
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    return hook.main()
+
+            cases = (
+                ("ordinary", {}, [], {}, 0),
+                ("explicit", {}, ["--recurse-submodules=on-demand"], {}, 2),
+                ("inherited", {"push.recurseSubmodules": "on-demand"}, [], {}, 2),
+                ("fallback", {"submodule.recurse": "true"}, [], {}, 2),
+                ("both", {"push.recurseSubmodules": "false", "submodule.recurse": "true"}, [], {}, 2),
+                ("environment", {}, [], {"GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "push.recurseSubmodules", "GIT_CONFIG_VALUE_0": "on-demand"}, 2),
+            )
+            for label, config, options, additions, expected in cases:
+                with self.subTest(label=label):
+                    for key in ("push.recurseSubmodules", "submodule.recurse"):
+                        real_run(["git", "config", "--local", "--unset-all", key], cwd=parent,
+                                 capture_output=True, text=True, timeout=20)
+                    for key, value in config.items():
+                        git(["config", "--local", key, value], parent)
+                    (parent / "module" / "data").write_text(label, encoding="utf-8")
+                    commit(parent / "module", label)
+                    commit(parent, label + " pointer")
+                    before_secondary = git(["show-ref"], secondary)
+                    before_parent = git(["show-ref"], accepted)
+                    with unittest.mock.patch.dict(os.environ, additions):
+                        status = guard(options)
+                        if status == 0:
+                            git(["push", *options, "origin", "master"], parent)
+                        self.assertEqual(status, expected)
+                        self.assertEqual(git(["show-ref"], secondary), before_secondary)
+                        if expected == 0:
+                            self.assertNotEqual(git(["show-ref"], accepted), before_parent)
+                        else:
+                            self.assertEqual(git(["show-ref"], accepted), before_parent)
+                            # Intentional bypass only within tempfiles: the
+                            # same actual Git command must advance the child.
+                            git(["push", *options, "origin", "master"], parent)
+                            self.assertNotEqual(git(["show-ref"], secondary), before_secondary)
 
 
 if __name__ == "__main__":

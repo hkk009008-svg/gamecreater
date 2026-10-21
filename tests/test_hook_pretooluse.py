@@ -2,6 +2,7 @@ import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -119,6 +120,86 @@ class TestPushRemoteName(unittest.TestCase):
                 self.assertIsNone(repo)
                 self.assertIsNone(remote)
                 self.assertIn("actual target", error)
+
+    def test_recursive_push_controls_are_refused_at_every_argument_position(self):
+        for option in ("--recurse-submodules", "--recurse-submodules=on-demand",
+                       "--recurse-submodules=only", "--recurse-submodules=no",
+                       "--recurse", "--recur=on-demand", "--rec=only",
+                       "--no-recurse-submodules", "--no-recurse"):
+            for arguments in (f"{option} origin main", f"origin {option} main",
+                              f"origin main {option}"):
+                with self.subTest(arguments=arguments):
+                    repo, remote, error = hook.push_spec("git push " + arguments)
+                    self.assertIsNone(repo)
+                    self.assertIsNone(remote)
+                    self.assertIn("recursive-push", error)
+
+    def test_generated_recursive_option_prefixes_cannot_evade_the_single_destination_check(self):
+        for full in ("--recurse-submodules", "--no-recurse-submodules"):
+            for end in range(3, len(full) + 1):
+                for suffix in ("", "=on-demand", "=only", "=no", "=$mode"):
+                    option = full[:end] + suffix
+                    with self.subTest(option=option):
+                        self.assertIsNotNone(hook.push_spec(f"git push origin main {option}")[2])
+
+
+class TestInboxAppendSwitch(unittest.TestCase):
+    def dispatch(self, command):
+        payload = json.dumps({"tool_name": "PowerShell", "tool_input": {"command": command}})
+        with patch.object(sys, "stdin", io.StringIO(payload)), redirect_stderr(io.StringIO()):
+            return hook.main()
+
+    def test_only_bare_append_switch_exempts_outfile(self):
+        self.assertEqual(self.dispatch("'lesson' | Out-File -Append LESSONS.md"), 0)
+        self.assertEqual(self.dispatch("'lesson' | Out-File LESSONS.md -aPpEnD"), 0)
+        for suffix in ("", " -Append:$false", " -Append:0", " -Append:$null",
+                       " -Append:$flag", " -Append:($false)", " -Append:$true",
+                       " '-Append'", " -InputObject 'contains -Append text'"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(self.dispatch("Out-File -FilePath LESSONS.md" + suffix), 2)
+
+    def test_quoted_paths_and_other_truncating_cmdlets_remain_guarded(self):
+        for command in (
+                "'x' | Out-File -FilePath 'C:/fixture;path/LESSONS.md' -Append:$false",
+                "'x' | Out-File -FilePath:'C:/fixture/LESSONS.md' -Append:$false",
+                "Set-Content -LiteralPath 'C:/fixture/LESSONS.md' -Value x",
+                "'x' > LESSONS.md", "'x' | tee LESSONS.md"):
+            with self.subTest(command=command):
+                self.assertEqual(self.dispatch(command), 2)
+        self.assertEqual(self.dispatch("'x' >> LESSONS.md"), 0)
+
+    def test_literal_module_and_invocation_forms_keep_the_same_append_boundary(self):
+        for executor in ("Microsoft.PowerShell.Utility\\Out-File", "& 'Out-File'",
+                         "&('Out-File')", "& ('Microsoft.PowerShell.Utility\\Out-File')",
+                         ". 'Out-File'"):
+            for suffix, expected in ((" -Append:$false", 2), (" -Append:$flag", 2),
+                                     (" -Append", 0), ("", 2)):
+                with self.subTest(executor=executor, suffix=suffix):
+                    command = f"'x' | {executor} -FilePath LESSONS.md{suffix}"
+                    self.assertEqual(self.dispatch(command), expected)
+
+    @unittest.skipUnless(sys.platform == "win32", "native PowerShell fixture requires Windows")
+    def test_native_powershell_bare_append_preserves_original_and_false_overwrites_control(self):
+        with tempfile.TemporaryDirectory(prefix="guard-inbox-") as td:
+            target = Path(td) / "LESSONS.md"
+            for executor in ("Out-File", "Microsoft.PowerShell.Utility\\Out-File",
+                             "& 'Out-File'", "&('Out-File')"):
+                with self.subTest(executor=executor):
+                    target.write_text("synthetic original\n", encoding="utf-8")
+                    base = f"'synthetic new' | {executor} -Encoding utf8 -FilePath '{target}'"
+                    append = base + " -Append"
+                    self.assertEqual(self.dispatch(append), 0)
+                    result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", append],
+                                            capture_output=True, text=True, timeout=20)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("synthetic original", target.read_text(encoding="utf-8-sig"))
+                    false = base + " -Append:$false"
+                    self.assertEqual(self.dispatch(false), 2)
+                    # Intentional bypass only on this disposable file proves the threat.
+                    result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", false],
+                                            capture_output=True, text=True, timeout=20)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotIn("synthetic original", target.read_text(encoding="utf-8-sig"))
 
 
 class TestEditorDetection(unittest.TestCase):

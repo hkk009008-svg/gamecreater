@@ -24,29 +24,40 @@ This is not a general parser for aliases, scripts, arbitrary shell programs or
 all MCP operations. A private destination is not evidence that its content is
 safe to expose, and a standing grant is not fresh authorization for a Git act.
 
+Recursive pushes can contact a second destination. The named-remote grammar
+therefore refuses explicit `--recurse-submodules` controls. The preflight also
+reads effective `push.recurseSubmodules` and `submodule.recurse` configuration
+and refuses enabling, unknown or unreadable values. `check` on the former only
+checks availability and is accepted; false on one key does not cancel an
+enabling value on the other. No configuration is rewritten.
+
 ## Verification and activation
 
 Run the focused checks from the harness root:
 
 ```powershell
-python -B -m unittest tests.test_guard_entry tests.test_hook_shell_routes tests.test_guard_wiring tests.test_guard_shim tests.test_hook_pretooluse tests.test_hook_mcp tests.test_settings_matcher tests.test_preflight_push
+python -B -m unittest tests.test_guard_entry tests.test_hook_shell_routes tests.test_guard_wiring tests.test_guard_posix tests.test_guard_shim tests.test_hook_pretooluse tests.test_hook_mcp tests.test_settings_matcher tests.test_preflight_push
 ```
 
 The tests execute the host-applicable configured commands against disposable
 Git checkouts, drive real dispatcher call sites with controlled preflight
-responses and test both ALLOW and refusal paths. No payload push is executed.
+responses and test both ALLOW and refusal paths. Recursive-push consumer controls
+execute real pushes only between disposable local repositories; no production
+remote is pushed. PowerShell controls use disposable lesson files to prove that
+false append switches would overwrite them and that the guard refuses them.
 Missing dependencies, startup exits, cwd/PYTHONPATH decoys, exact stdin,
 working-directory propagation and malformed responses have dedicated controls.
 Keep failure receipts and run reversion/deleted-call controls in disposable
 copies or in-memory modules, with source identity retained.
 
 On the current Windows host, Claude's command and Codex's `commandWindows` can
-be executed by the fixture. The portable Codex command has a structural check;
-live POSIX execution remains unqualified until that runtime is available. A
-green fixture does not establish that a desktop host has enabled its hooks.
+be executed by the fixture. The saved portable Codex command also runs in Git
+Bash using a fixture-owned `python3` alias to the installed Python interpreter.
+That exercises POSIX parsing on Windows; native Linux execution remains
+unqualified. A green fixture does not establish desktop hook trust or activation.
 
 The PreToolUse definitions have a 90-second host budget, above the declared
-10-second root lookup, 10-second remote lookup, 30-second GitHub query and
+10-second root lookup, 10-second recursion-config lookup, 10-second remote lookup, 30-second GitHub query and
 10-second optional primary-checkout grant lookup waits.
 A wiring check compares the configured budget with the declared subprocess
 timeouts plus margin. It cannot bound arbitrary filesystem stalls, host
@@ -79,3 +90,31 @@ receipts, independent review, rollback bytes and remaining activation status.
 Local implementation, reviewed candidate, delivery, host activation and reuse
 are distinct states. No automatic Game dispatch or source edit follows a local
 guard change.
+
+## Phase 2: immutable Git publication-content audit
+
+The [offline audit workflow](roblox-publication-audit.md) selects actual index
+blobs, a resolved tree or local refs and reachable history. It retains redacted
+findings, coverage gaps, term/source identities and explicit reviewer
+dispositions. Classifications cannot turn findings into a pass. This is local
+evidence preparation, with no push-hook wiring or publication authority.
+
+The Phase 2 task record under `team/` owns actual candidate/review and test
+receipts. Local reachable-history inspection is not an audit of remote hosting
+surfaces, reflogs/unreachable data or external asset payloads; those remain
+separate work before any full publication-clearance claim.
+
+## Completion pass
+
+The local completion pass closes demonstrated recursive-push and PowerShell
+false-append bypasses with actual consumer controls and independent review.
+The lesson guard recognizes supported literal Out-File invocations; it is not a
+general PowerShell evaluator. Dynamic programs, aliases and arbitrary shell
+rewrites stay outside its named-operation contract.
+
+The audit now accepts explicit bounded collection and line budgets without
+changing its defaults. A larger budget can close a line-cap gap; it does not
+clear archive members, nested histories, rights, findings or remote surfaces.
+The dated completion report under `team/` records exact tests, classified
+findings and remaining owner/host work. Local hardening, publication readiness
+and live hook activation remain separate outcomes.

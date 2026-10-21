@@ -70,7 +70,7 @@ EDITOR_RE = re.compile(
 # for those).
 INBOX_TRUNCATE_RE = re.compile(
     r"(?:(?<!>)>(?!>)|\btee\b(?!\s+-a)[^|;&]*?|\bSet-Content\b[^|;&\n]*?"
-    r"|\bOut-File\b(?![^|;&\n]*-Append)[^|;&\n]*?)"
+    r")"
     r"\s*[\"']?[^\s\"'|;&]*LESSONS\.md\b",
     re.IGNORECASE)
 MSYS_DRIVE_RE = re.compile(r"^/([A-Za-z])(?=/|$)")
@@ -177,6 +177,48 @@ def _shell_words(command: str) -> list[str]:
     return [_unquote(word) for word in shlex.split(command, posix=False)]
 
 
+def outfile_truncates_inbox(command: str) -> bool:
+    """Only a literal bare -Append grants Out-File's append exemption.
+
+    Colon values may be false, null or expressions. Quoted data that happens
+    to contain -Append is not a switch. This is a narrow named-cmdlet check,
+    not a PowerShell evaluator or a guard for arbitrary programs.
+    """
+    if not re.search(r"\bOut-File\b", command, re.IGNORECASE):
+        return False
+    lexer = shlex.shlex(command, posix=False, punctuation_chars="|;&\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        words = list(lexer)
+    except ValueError:
+        return bool(re.search(r"LESSONS\.md\b", command, re.IGNORECASE))
+    segment: list[str] = []
+    for word in [*words, ";"]:
+        if word and all(char in "|;&\n" for char in word):
+            for index, token in enumerate(segment):
+                # PowerShell also invokes the same literal cmdlet through a
+                # module-qualified name, & 'Out-File', or &('Out-File'). Quoting
+                # is significant for switches but not for this command name.
+                literal = _unquote(token.strip("()"))
+                if not re.fullmatch(
+                        r"(?:Microsoft[.]PowerShell[.]Utility\\)?Out-File",
+                        literal, re.IGNORECASE):
+                    continue
+                arguments = segment[index + 1:]
+                if not any(re.search(r"LESSONS\.md\b", item, re.IGNORECASE)
+                           for item in arguments):
+                    continue
+                if (any(item.lower().startswith("-append:") for item in arguments)
+                        or not any(item.lower() == "-append" for item in arguments)):
+                    return True
+            segment = []
+        else:
+            segment.append(word)
+    return False
+
+
 def _is_git_program(word: str) -> bool:
     name = re.split(r"[\\/]", word)[-1].lower()
     return name in {"git", "git.exe"}
@@ -244,6 +286,19 @@ def push_spec(command: str) -> tuple[str | None, str | None, str | None]:
             "accepted; -c, --git-dir, --work-tree, repeated -C, and other "
             "Git globals can change the actual target")
     i += 1
+
+    # Refuse all explicit recursive controls, including Git's long-option
+    # abbreviations and safe disabling overrides. This bounded grammar checks
+    # one destination; it does not authorize child destinations or reinterpret
+    # option precedence. The preflight separately checks inherited settings.
+    for word in words[i:]:
+        option = word.split("=", 1)[0]
+        if (len(option) > 2 and option.startswith("--")
+                and any(full.startswith(option) for full in (
+                    "--recurse-submodules", "--no-recurse-submodules"))):
+            return None, None, (
+                "recursive-push options and their abbreviations are unsupported; "
+                "only one named-remote destination is checked")
 
     while i < len(words) and words[i].startswith("-"):
         option = words[i]
@@ -352,7 +407,7 @@ def shell_workdir(tool_name: str, tool_input: dict) -> str | None:
 
 
 def dispatch(command: str, *, cwd: str | None = None) -> int:
-    if INBOX_TRUNCATE_RE.search(command):
+    if INBOX_TRUNCATE_RE.search(command) or outfile_truncates_inbox(command):
         print("inbox-guard: that command TRUNCATES a lessons inbox "
               "(single '>' / Set-Content / Out-File / tee without append). "
               "Lessons are append-only; use '>>' to add, and distill-an-arc "
