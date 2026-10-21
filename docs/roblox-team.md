@@ -94,6 +94,23 @@ Feed completed changes and debugging cases into the
 failure, the controls that separated causes and the exact replay; keep proposals
 separate from implemented and demonstrated mechanisms.
 
+## Learning from production
+
+Follow the [learning workflow](roblox-learning-workflow.md) for useful handbacks,
+costly failures and repeated work. At substantial task intake, retrieve relevant
+IDs from the local learning index and record intended use or none. At handback,
+record actual application, adaptation, evidence and limits; unmeasured benefit
+stays unknown. Development Mapping curates dispositions and destinations while
+the game owner retains active implementation and state. Use the existing debug
+and task templates; routine work need not produce a new lesson or tool.
+
+The user's standing instruction authorizes notifying the bound Game integrator
+after completed relevant harness instruction or behavior changes. Follow the
+[notification handoff](roblox-learning-workflow.md#notify-game-of-completed-changes):
+use current chat/host identity, state exact scope/checks/local-or-delivered status,
+and apply it to remaining authorized work. Record sent, acknowledged and adopted
+separately; no automatic next leaf, worker dispatch or Game-state takeover follows.
+
 ## Source, saved place and Studio
 
 Record the project's source-of-truth model before editing:

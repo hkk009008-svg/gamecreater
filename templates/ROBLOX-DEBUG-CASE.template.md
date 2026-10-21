@@ -56,3 +56,28 @@ cause. Preserve wrong diagnoses with their correction.
 - Owner handback / next action: <one executable action>
 - Engine candidate: <reusable mechanism, supported inputs, side effects,
   controls, failure behavior and remaining proposal; or none>
+
+## Extraction and reuse (optional)
+
+Use the [learning workflow](../docs/roblox-learning-workflow.md) and a local
+[learning index](ROBLOX-LEARNING-INDEX.template.json) when this case yields a
+reusable lesson. Preserve the original failure chronology; record later
+qualification separately. No extraction quota, new tool or skill is required.
+Existing guidance, a duplicate, project-only knowledge, rejection or deferral
+are valid dispositions.
+
+- Stable learning ID / local index: <ID and index path, or none with brief reason>
+- Latest qualified disposition / evidence cutoff: <current supported result,
+  observed-through time and supporting reference; do not rewrite earlier results>
+- General mechanism / applicability / exclusions: <what transfers, when to use
+  it, and conditions or effects this case does not support>
+- Durable form / reason / owner / destination: <existing guidance, doc/checklist,
+  test/helper, skill candidate or no promotion; why this form; owner and exact path>
+- Implemented change / review / delivery: <exact change or method version,
+  proportional review and delivery references; separate proposed from implemented
+  and record missing or unknown evidence>
+- Next reuse target: <task and candidate if known, intended entry and expected
+  use; pending is valid and a planned use is not a completed reuse>
+- Actual reuse receipt: <task/candidate, actual entry, method version/hash,
+  adaptations, observed outcome and evidence, and remaining limits; NOT RUN
+  when no reuse has been observed>

@@ -13,6 +13,18 @@
 - Review class and reason: <ordinary-local / material-behavior / high-risk-control; changed behavior>
 - Independent reviewer for substantial changes: <non-author; or not needed for ordinary-local>
 
+## Learning retrieval (optional)
+
+Use the [learning workflow](../docs/roblox-learning-workflow.md) to retrieve only
+lessons relevant to this slice. The local
+[learning index](ROBLOX-LEARNING-INDEX.template.json) points to evidence; it does
+not grant authority or require a new tool, skill or extraction.
+
+- Selected learning IDs: <IDs, or none with a brief reason>
+- Applicability / expected use: <why each selected method fits this task and
+  which entry, check or decision it should help; relevant exclusions>
+- Retrieval owner / local index: <task owner and exact index path, or unavailable>
+
 ## Scope and ownership
 
 - Source-of-truth model: <source-built or Studio-native; canonical path>
@@ -75,3 +87,14 @@ Return the changed-path list, behavior, relevant results/limits, exact saved
 build and receipt if produced, cleanup/Studio state, open issues and next
 executable action. Request shared-file changes from their owner. Do not edit
 another owner's files, publish, upload, spend or push because the task exists.
+
+### Reuse closeout
+
+When learning was selected or discovered, keep the result brief and link the
+actual evidence. Otherwise record none; do not manufacture a lesson.
+
+- Learning IDs / disposition: <applied / adapted / not used / unresolved, with
+  a reason; distinguish intended use from what actually happened>
+- Actual result / evidence / limits: <task/candidate and entry, method version,
+  adaptations, observed result and report path; unmeasured benefit stays unknown>
+- New candidate learning: <ID/local case and next owner/action, or none>

@@ -55,6 +55,13 @@ python scripts/roblox_development_map.py --help
 The mapping department reads the game and maintains its own harness records.
 Game retains integration, dispatch, Studio and active state ownership.
 
+The [learning workflow](docs/roblox-learning-workflow.md) connects retained cases
+to a chosen reusable method and its next actual use. Retrieve relevant learning
+IDs at substantial task intake; record extraction and reuse at handback. Use the
+[local index template](templates/ROBLOX-LEARNING-INDEX.template.json), existing
+debug/task templates and Development Mapping. Local case evidence stays local;
+generic methods, examples and focused checks form the reusable repository.
+
 ```powershell
 python scripts/roblox_team.py inventory
 ```

@@ -27,6 +27,21 @@ graphs, traces declared connections and compares snapshots. Keep the map
 proportional to the question, refresh affected evidence after meaningful change,
 and leave active game/state writes and dispatch with their existing owner.
 
+Use the [learning workflow](docs/roblox-learning-workflow.md) at substantial task
+intake and handback: retrieve relevant learning IDs, retain useful cases, choose
+the smallest reusable form and record actual reuse outcomes. Development Mapping
+curates its own local index; no fixed lesson quota or extra engine is required.
+Keep proposed, implemented, delivered and reused status distinct, and preserve
+the game's ownership and the existing arc-end skill-edit boundary.
+
+The user has given standing authorization to notify the bound Game integration
+chat after completed relevant harness instruction/workflow/behavior changes.
+Use the current binding's chat/host, send the concrete change, checks, delivery
+status and application to remaining work, and record receipt separately from
+acknowledgement/adoption. Reuse the same change identity to avoid duplicate
+notices. This does not authorize worker-chat dispatch, another leaf, Game file
+edits or external effects. If routing is uncertain, report it instead of guessing.
+
 ## Start every session
 
 1. Read GAME.local.md: engine, project roots, integration owner and exact grants.

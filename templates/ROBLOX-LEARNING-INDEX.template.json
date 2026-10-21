@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "example": true,
+  "updatedUtc": null,
+  "owner": "UNASSIGNED - fictional example",
+  "purpose": "Local learning dispositions and reuse; not game state or authority",
+  "entries": [
+    {
+      "id": "LEARN-EXAMPLE",
+      "title": "Fictional learning - replace before use",
+      "tags": ["example-only"],
+      "caseRef": "example-case",
+      "evidenceRefs": ["example-case"],
+      "qualification": {
+        "observedUtc": null,
+        "summary": "No actual case or result has been observed",
+        "unresolved": ["Replace every example identity and claim"]
+      },
+      "method": {
+        "mechanism": "Describe the transferable rule, not one game's constants",
+        "appliesWhen": ["The condition that makes this method relevant"],
+        "exclusions": ["Unsupported conditions and acceptance stages"]
+      },
+      "extraction": {
+        "disposition": "deferred",
+        "reason": "Fictional example; no promotion decision made",
+        "owner": "UNASSIGNED",
+        "destinations": [],
+        "change": null,
+        "review": null,
+        "delivery": null
+      },
+      "reuse": {
+        "status": "pending",
+        "relatedObservations": [],
+        "firstUse": null,
+        "nextTrigger": "Next authorized task to which this method applies"
+      }
+    }
+  ],
+  "evidence": {
+    "example-case": {
+      "path": "REPLACE-WITH-ACTUAL-CASE-PATH",
+      "sha256": null,
+      "readUtc": null,
+      "basis": "Placeholder only; no file was read or fingerprinted"
+    }
+  },
+  "limits": [
+    "This template is fictional and supplies no evidence, assignment, acceptance or authority.",
+    "Replace the entry, evidence and owner, set example to false and record actual times before operational use.",
+    "The index is curated metadata; there is no new production validator or automatic promotion mechanism."
+  ]
+}

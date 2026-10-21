@@ -37,12 +37,18 @@ exact candidate, excluded scope, allowed writes and questions to answer.
 | Model | Separate scope, people, production, runtime and evidence views; name each relation and its supporting references |
 | Check | Reject malformed references and ambiguous graph structure; optionally compare declared evidence hashes with current files |
 | Explain | Return a navigable map, ordered handoff description and open evidence cells with owners |
-| Learn | Propose a reusable mechanism from demonstrated cases; send a bounded patch request through the owning workflow |
+| Learn | Curate case dispositions, choose reusable destinations and link actual reuse evidence through the learning workflow |
 
 The integrator retains task order, shared interfaces, implementation and final
 handoff. QA retains independent review. This department can identify a dependency
 or stale record without changing either owner's files. It reports routing
 uncertainty rather than silently rebinding a project or messaging a new owner.
+
+Use the [learning workflow](roblox-learning-workflow.md) to connect a useful case
+to its method, destination, review/delivery and later task outcome. Keep current
+qualified summaries in a separate local index and preserve the raw chronology.
+Similar later evidence and measured reuse are different records. This role
+neither automatically promotes claims nor requires a new engine for each lesson.
 
 ## Engine input, actions and output
 

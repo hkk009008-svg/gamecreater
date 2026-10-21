@@ -131,6 +131,11 @@ source defect. The source game retained those captures with their exclusions.
 
 ## Extract the method, then specialize
 
+The [learning workflow](roblox-learning-workflow.md) records a stable learning ID,
+qualified disposition, chosen destination/owner and actual reuse receipt. Use
+the debug/task template blocks and separate local index before building more
+machinery. A documented or delivered component can still have reuse pending.
+
 For each candidate engine component, retain the triggering case, exact inputs,
 actions and side effects, output, failed hypotheses, controls, supported subset
 and failure behavior. Reuse the existing helper where it already does that job.
