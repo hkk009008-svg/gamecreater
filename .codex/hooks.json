@@ -17,13 +17,13 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|mcp__.*",
+        "matcher": "Bash|PowerShell|Monitor|exec_command|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/hook_pretooluse.py\"",
-            "commandWindows": "python -c \"import pathlib, runpy, subprocess; root = pathlib.Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()); runpy.run_path(str(root / 'scripts' / 'hook_pretooluse.py'), run_name='__main__')\"",
-            "timeout": 30,
+            "command": "python3 -I -c \"import sys; exec('status = 2\\ntry:\\n import pathlib, runpy, subprocess\\n root = pathlib.Path(subprocess.check_output([\\'git\\', \\'rev-parse\\', \\'--show-toplevel\\'], text=True, stderr=subprocess.PIPE, timeout=10).strip()).resolve(strict=True)\\n entry = root / \\'scripts\\' / \\'guard_entry.py\\'\\n if entry.resolve(strict=True) != entry:\\n  raise ValueError(\\'guard entry resolves outside selected checkout\\')\\n namespace = runpy.run_path(str(entry), run_name=\\'_gamecreater_guard_entry\\')\\n result = namespace[\\'main\\']()\\n if type(result) is not int:\\n  raise ValueError(\\'guard entry returned invalid status\\')\\n status = 0 if result == 0 else 2\\nexcept BaseException as error:\\n try:\\n  print(\\'guard-wrapper failed closed: \\' + type(error).__name__, file=sys.stderr)\\n except BaseException:\\n  pass\\nsys.exit(status)')\"",
+            "commandWindows": "python -I -c \"import sys; exec('status = 2\\ntry:\\n import pathlib, runpy, subprocess\\n root = pathlib.Path(subprocess.check_output([\\'git\\', \\'rev-parse\\', \\'--show-toplevel\\'], text=True, stderr=subprocess.PIPE, timeout=10).strip()).resolve(strict=True)\\n entry = root / \\'scripts\\' / \\'guard_entry.py\\'\\n if entry.resolve(strict=True) != entry:\\n  raise ValueError(\\'guard entry resolves outside selected checkout\\')\\n namespace = runpy.run_path(str(entry), run_name=\\'_gamecreater_guard_entry\\')\\n result = namespace[\\'main\\']()\\n if type(result) is not int:\\n  raise ValueError(\\'guard entry returned invalid status\\')\\n status = 0 if result == 0 else 2\\nexcept BaseException as error:\\n try:\\n  print(\\'guard-wrapper failed closed: \\' + type(error).__name__, file=sys.stderr)\\n except BaseException:\\n  pass\\nsys.exit(status)')\"",
+            "timeout": 90,
             "statusMessage": "Checking repository safety guards"
           }
         ]

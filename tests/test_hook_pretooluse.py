@@ -261,7 +261,7 @@ class TestHookWiring(unittest.TestCase):
 
     def test_settings_invokes_the_dispatcher_without_posix_sh(self):
         cmd = self._command()
-        self.assertIn("hook_pretooluse.py", cmd)
+        self.assertIn("guard_entry.py", cmd)
         self.assertNotIn("run_pretooluse.sh", cmd)
         self.assertNotIn("sh ", cmd)
 

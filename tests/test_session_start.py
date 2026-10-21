@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+import copy
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -15,6 +17,48 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import session_start as ss  # noqa: E402
+
+
+class TestGuardFileReport(unittest.TestCase):
+    def probe(self, data):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / ".codex").mkdir()
+            (root / ".codex" / "hooks.json").write_text(json.dumps(data), encoding="utf-8")
+            (root / ".claude").mkdir()
+            (root / ".claude" / "settings.json").write_text('{"hooks":{}}', encoding="utf-8")
+            with patch.object(ss, "ROOT", root), patch.object(ss, "LINES", []), patch.object(ss, "WARN", []):
+                ss.guard_block()
+                return "\n".join(ss.LINES), "\n".join(ss.WARN)
+
+    def test_current_entry_is_reported_without_claiming_host_activation(self):
+        data = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+        output, warnings = self.probe(data)
+        self.assertIn("trust/running state not observable here", output)
+        self.assertNotIn("Codex PreToolUse", warnings)
+        self.assertNotIn("Codex SessionStart", warnings)
+
+    def test_missing_stale_or_single_broken_variant_is_reported(self):
+        original = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+        for variant in ("missing", "stale", "command", "commandWindows"):
+            data = copy.deepcopy(original)
+            if variant == "missing":
+                data["hooks"]["PreToolUse"] = []
+            else:
+                hook = data["hooks"]["PreToolUse"][0]["hooks"][0]
+                keys = ("command", "commandWindows") if variant == "stale" else (variant,)
+                for key in keys:
+                    hook[key] = "python scripts/hook_pretooluse.py"
+            with self.subTest(variant=variant):
+                _, warnings = self.probe(data)
+                self.assertIn("does not declare the current repository guard entry", warnings)
+
+    def test_session_start_cannot_mask_missing_pretooluse_entry(self):
+        data = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+        data["hooks"]["PreToolUse"] = []
+        data["hooks"]["SessionStart"][0]["hooks"][0]["commandWindows"] += " guard_entry.py"
+        _, warnings = self.probe(data)
+        self.assertIn("does not declare the current repository guard entry", warnings)
 
 
 class TestNowBlock(unittest.TestCase):

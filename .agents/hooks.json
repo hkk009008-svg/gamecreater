@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python scripts/hook_antigravity_pretooluse.py",
-            "timeout": 30
+            "command": "python -I scripts/hook_antigravity_pretooluse.py",
+            "timeout": 90
           }
         ]
       }

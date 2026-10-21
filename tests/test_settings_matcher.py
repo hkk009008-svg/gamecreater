@@ -39,7 +39,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import hook_antigravity_pretooluse as antigravity_hook  # noqa: E402
 
 # Every tool in this harness that can execute a shell command string.
-REQUIRED = ("Bash", "PowerShell", "Monitor")
+REQUIRED = ("Bash", "PowerShell", "Monitor", "exec_command")
 
 
 def matchers() -> list[str]:
@@ -78,8 +78,8 @@ class TestPreToolUseMatcher(unittest.TestCase):
                 hooks, f"matcher {entry.get('matcher')!r} has no hook command")
             for h in hooks:
                 self.assertEqual(h.get("type"), "command")
-                self.assertIn("hook_pretooluse.py", h.get("command", ""),
-                              "the matcher must route to the dispatcher")
+                self.assertIn("guard_entry.py", h.get("command", ""),
+                              "the matcher must route through the fail-closed entry")
 
 
 class TestCodexHooks(unittest.TestCase):
@@ -101,7 +101,7 @@ class TestCodexHooks(unittest.TestCase):
             str(h.get("commandWindows") or h.get("command") or "")
             for entry in pre for h in (entry.get("hooks") or []))
         self.assertIn("session_start.py", start_commands)
-        self.assertIn("hook_pretooluse.py", pre_commands)
+        self.assertIn("guard_entry.py", pre_commands)
         self.assertIn("git", start_commands.lower(),
                       "hook must resolve this checkout, not assume one path")
         self.assertIn("git", pre_commands.lower(),

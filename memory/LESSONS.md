@@ -763,3 +763,15 @@ The next sweep starts below this line.
   while the corrected actual-map replay is saved. This is an instrument case,
   not a Game defect or a claim about every Windows/Python version. Evidence:
   team/debug-case-development-map-read-identity-20261021.local.json.
+
+- 2026-10-21 - A GUARD MUST BIND ITS HOST AND OUTLIVE ITS DECLARED CHECKS.
+  A github.com remote plus `gh repo view owner/repo` can query a different
+  default host; qualify the CLI target with the actual remote host as well as
+  owner/name. A30s hook budget was also shorter than its nested CLI waits.
+  Enumerate the root, remote, visibility and optional grant lookup budgets,
+  retain margin, and distinguish script refusal from host timeout/activation.
+  The corrected90s setting covers these declared waits on this harness, not
+  arbitrary stalls. Prove the query arguments and timeout regressions with
+  disposable/in-memory reversions; do not test by pushing or bypassing trust.
+  Evidence: team/hardening-source-replay-r2-20261021.local.json and
+  docs/roblox-hardening.md. No live enterprise query or hook firing was claimed.

@@ -31,6 +31,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import check_editor_clear  # noqa: E402
 import preflight_push  # noqa: E402
+from hook_shell_routes import extract_shell_command  # noqa: E402
 
 # git[.exe] then only global options, then the `push` subcommand.
 # Must not match: git stash push, git commit -m "push", git log --grep=push.
@@ -94,13 +95,12 @@ class HookPayloadError(ValueError):
     """A matched hook call did not carry one usable payload."""
 
 
-def parse_hook_payload(payload: str) -> tuple[str, str]:
+def parse_hook_request(payload: str) -> tuple[str, dict, str]:
     """Parse once and fail closed on shell schema drift.
 
-    MCP calls are valid without ``tool_input.command`` because their safety
-    rule keys on the tool name. Every other matched call must carry a non-empty
-    command string; otherwise a renamed payload field would silently disable
-    every shell guard.
+    Explicitly supported shell tools have one named command field. Other MCP
+    payloads remain opaque and use tool-name policy only. An unknown matched
+    non-MCP call retains the existing command-field contract.
     """
     try:
         data = json.loads(payload.lstrip("\ufeff \r\n\t"))
@@ -114,15 +114,26 @@ def parse_hook_payload(payload: str) -> tuple[str, str]:
     tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
         raise HookPayloadError("missing tool_input object")
+    try:
+        shell_command = extract_shell_command(name, tool_input)
+    except ValueError as exc:
+        raise HookPayloadError(str(exc)) from exc
+    if shell_command is not None:
+        return name, tool_input, shell_command
     if name.startswith("mcp__"):
-        # MCP arguments are server-defined. A field named ``command`` is not
-        # necessarily a shell command, so MCP safety keys only on tool name.
-        return name, ""
+        # Unregistered MCP contracts stay opaque; a command-like field is not
+        # enough to identify a shell executor.
+        return name, tool_input, ""
     cmd = tool_input.get("command")
     if not isinstance(cmd, str) or not cmd.strip():
         label = name or "matched shell tool"
         raise HookPayloadError(f"{label} has no non-empty command string")
-    return name, cmd
+    return name, tool_input, cmd
+
+
+def parse_hook_payload(payload: str) -> tuple[str, str]:
+    name, _, command = parse_hook_request(payload)
+    return name, command
 
 
 def command_of(payload: str) -> str:
@@ -133,13 +144,10 @@ def command_of(payload: str) -> str:
 
 
 def tool_of(payload: str) -> str:
-    """The tool NAME, which is the only thing an MCP call reliably carries.
+    """Return the tool name for policy, including opaque MCP contracts.
 
-    An MCP tool call has no `tool_input.command`, so command_of() returns ""
-    and the dispatcher allowed it unconditionally. That was harmless only
-    while zero MCP servers were configured; enabling Unreal's MCP server
-    changes that, and any future git-capable MCP server would make
-    AGENTS.md's push rule false without a line of this file changing.
+    Only registered shell routes expose a command to this dispatcher. Other
+    MCP payloads use name policy because their arguments have no shared schema.
     """
     try:
         return parse_hook_payload(payload)[0]
@@ -227,6 +235,8 @@ def push_spec(command: str) -> tuple[str | None, str | None, str | None]:
         if i + 1 >= len(words):
             return None, None, "git -C requires one repository path"
         repo = normalize_dir(words[i + 1])
+        if re.match(r"^[A-Za-z]:(?![\\/])", repo):
+            return None, None, "drive-relative git -C paths are unsupported"
         i += 2
     if i >= len(words) or words[i].lower() != "push":
         return None, None, (
@@ -311,14 +321,37 @@ def dispatch_tool(tool_name: str) -> int:
         print(f"MCP BLOCKED: '{tool_name}' names an act AGENTS.md reserves "
               f"to the user (repository push, merge, publication, visibility, "
               f"or deletion). "
-              f"The shell-command guards cannot see MCP calls at all, so "
-              f"this rule keys on the tool name. Have the user authorize "
+              f"This reserved-act rule keys on the tool name, including "
+              f"MCP contracts with opaque arguments. Have the user authorize "
               f"the exact effect, executor and target.", file=sys.stderr)
         return 2
     return 0
 
 
-def dispatch(command: str) -> int:
+def shell_workdir(tool_name: str, tool_input: dict) -> str | None:
+    """Resolve supported executor context without changing the hook process cwd.
+
+    Unknown execution-context aliases on a known shell route fail closed rather
+    than checking a different repository. Null means the executor's default.
+    """
+    fields = {"cwd", "workdir", "working_directory", "workingDirectory"}
+    expected = {"exec_command": "workdir",
+                "mcp__terminal__run_in_terminal": "cwd"}.get(tool_name)
+    supplied = fields.intersection(tool_input)
+    if supplied - ({expected} if expected else set()):
+        raise HookPayloadError(f"{tool_name} has an unsupported working-directory field")
+    value = tool_input.get(expected) if expected else None
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
+        raise HookPayloadError(f"{tool_name} has no usable {expected} path")
+    value = normalize_dir(value)
+    if re.match(r"^[A-Za-z]:(?![\\/])", value) or value.startswith(("\\\\", "//")):
+        raise HookPayloadError("ambiguous or network working directory is unsupported")
+    return str(Path(value).resolve())
+
+
+def dispatch(command: str, *, cwd: str | None = None) -> int:
     if INBOX_TRUNCATE_RE.search(command):
         print("inbox-guard: that command TRUNCATES a lessons inbox "
               "(single '>' / Set-Content / Out-File / tee without append). "
@@ -332,6 +365,10 @@ def dispatch(command: str) -> int:
         if error:
             print(f"PUSH BLOCKED: {error}.", file=sys.stderr)
             return 2
+        if cwd is not None:
+            # An explicit relative git -C is evaluated by Git from the tool's
+            # actual workdir, not from the hook's session cwd.
+            repo = str((Path(cwd) / repo).resolve())
         rc = run_guard(preflight_push.main,
                        ["preflight_push", repo, remote])
         if rc != 0:
@@ -363,13 +400,14 @@ def main() -> int:
         sys.stderr.reconfigure(errors="backslashreplace")
     try:
         payload = sys.stdin.read()
-        tool_name, command = parse_hook_payload(payload)
+        tool_name, tool_input, command = parse_hook_request(payload)
         rc = dispatch_tool(tool_name)
         if rc != 0:
             return rc
         if not command:
             return 0
-        return dispatch(command)
+        cwd = shell_workdir(tool_name, tool_input)
+        return dispatch(command, cwd=cwd) if cwd is not None else dispatch(command)
     except HookPayloadError as e:
         print(f"guard failed closed: {e}", file=sys.stderr)
         return 2

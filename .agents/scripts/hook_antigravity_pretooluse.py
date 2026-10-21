@@ -38,6 +38,15 @@ def deny(reason: str) -> int:
     return 0
 
 
+def unique_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate adapter decision key")
+        result[key] = value
+    return result
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
@@ -45,10 +54,25 @@ def main() -> int:
         return deny(f"guard shim failed closed: no scripts dir at {REAL}")
     sys.path.insert(0, str(REAL))
     try:
-        import hook_antigravity_pretooluse as real
-    except Exception as e:                                      # noqa: BLE001
-        return deny(f"guard shim failed closed: {type(e).__name__}: {e}")
-    return real.main()
+        import contextlib
+        import io
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            import hook_antigravity_pretooluse as real
+            status = real.main()
+        if type(status) is not int or status != 0:
+            return deny("guard shim failed closed: invalid adapter status")
+        result = json.loads(captured.getvalue(), object_pairs_hook=unique_keys)
+        if (not isinstance(result, dict)
+                or result.get("decision") not in {"allow", "deny"}
+                or set(result) - {"decision", "reason"}
+                or (result["decision"] == "deny" and (
+                    not isinstance(result.get("reason"), str) or not result["reason"].strip()))):
+            return deny("guard shim failed closed: invalid adapter decision")
+    except BaseException as e:
+        return deny(f"guard shim failed closed: {type(e).__name__}")
+    print(json.dumps(result))
+    return 0
 
 
 if __name__ == "__main__":

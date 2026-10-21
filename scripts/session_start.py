@@ -366,17 +366,20 @@ def guard_block() -> None:
         pre = hooks.get("PreToolUse", [])
         start = hooks.get("SessionStart", [])
         matcher = "|".join(str(entry.get("matcher") or "") for entry in pre)
-        commands = "\n".join(
+        pre_commands = [
+            str(hook.get(key) or "") for entry in pre
+            for hook in entry.get("hooks", [])
+            for key in ("command", "commandWindows") if key in hook]
+        start_commands = "\n".join(
             str(hook.get("commandWindows") or hook.get("command") or "")
-            for entries in (pre, start)
-            for entry in entries
-            for hook in entry.get("hooks", []))
+            for entry in start for hook in entry.get("hooks", []))
         out(f"Codex hook file: PreToolUse={matcher or 'MISSING'}; "
             f"SessionStart={'configured' if start else 'MISSING'}; "
             "trust/running state not observable here")
-        if "Bash" not in matcher or "hook_pretooluse.py" not in commands:
-            warn("Codex PreToolUse is not wired to the repository guard")
-        if not start or "session_start.py" not in commands:
+        if ("Bash" not in matcher or not pre_commands
+                or any("guard_entry.py" not in command for command in pre_commands)):
+            warn("Codex PreToolUse does not declare the current repository guard entry")
+        if not start or "session_start.py" not in start_commands:
             warn("Codex SessionStart is not wired to session orientation")
     except Exception as e:                                      # noqa: BLE001
         warn(f"could not read .codex/hooks.json: {e}")
