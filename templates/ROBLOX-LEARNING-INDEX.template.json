@@ -33,6 +33,7 @@
       "reuse": {
         "status": "pending",
         "relatedObservations": [],
+        "events": [],
         "firstUse": null,
         "nextTrigger": "Next authorized task to which this method applies"
       }

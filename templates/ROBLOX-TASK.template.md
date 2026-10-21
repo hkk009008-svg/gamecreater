@@ -97,4 +97,7 @@ actual evidence. Otherwise record none; do not manufacture a lesson.
   a reason; distinguish intended use from what actually happened>
 - Actual result / evidence / limits: <task/candidate and entry, method version,
   adaptations, observed result and report path; unmeasured benefit stays unknown>
+- Role/artifact handoff, when relevant: <producer, consumer, stage, frozen
+  artifact/version, received versus checked result, shared versus independently
+  acquired inputs, and next owner/check; append later outcomes, preserve prior ones>
 - New candidate learning: <ID/local case and next owner/action, or none>

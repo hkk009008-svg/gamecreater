@@ -110,6 +110,37 @@ number of notes, graph reach and delivery status are not measures of learning
 benefit. An unhelpful method can be revised, deferred or retired with a reason;
 preserve its prior evidence.
 
+## Reuse across team handoffs
+
+Record reuse at the role, artifact and stage where it happened. A worker can
+apply a method to analysis, preserve it in a proposed instrument, or correctly
+leave it to another lane while production and runtime checks remain pending.
+Keep the original worker handoff intact; append later consumer results instead
+of rewriting an earlier pending statement as a whole-task success.
+
+Use optional `reuse.events` for these short receipts. Each event names the task
+and role, producer and intended consumer, exact artifact/version, stage, actual
+application or reason for non-use, result/evidence, and the next owner/check.
+State whether an independent analysis used shared inputs or independently
+acquired evidence. Record measured and inferred inputs separately. Neither a
+second analysis of the same capture nor a delivered file supplies a fresh
+runtime observation.
+
+`firstUse` points to the earliest supported application and names its stage;
+it can be an analytical reuse with implementation still pending. An instrument
+proposal that merely preserves correlation does not prove a fresh-response
+control ran. Keep such planned execution pending even when its handoff is useful.
+Do not infer time savings or defect reduction from a completed handoff.
+
+Accept stable artifacts separately when their dependencies permit it: for
+example, an integrator can consume a frozen source hash while its author finishes
+a disjoint fixture. Record what was received and checked, what is still pending,
+and who owns the next action. Worker completion, consumer acceptance and final
+task acceptance are separate facts; this adds no mandatory ledger or review round.
+If the handoff names a prerequisite check, record its actual result before
+claiming that prerequisite cleared. Dispatching a reviewer or receiving a file
+while review is in progress is a separate event.
+
 ## Connect it to Development Mapping
 
 Use the existing [mapping engine](roblox-development-network.md) when a relation
